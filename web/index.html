@@ -43,6 +43,16 @@ input[type=range]::-moz-range-track{height:4px;background:var(--bd-hi);border-ra
 input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--ok)}
 .hint{color:var(--dim);font-size:10px;margin-top:8px}
 
+/* ---- 归一化的电平与动态增益 ---- */
+.viz{display:flex;align-items:center;gap:9px;margin-top:9px;padding-left:110px}
+.viz .lbl{width:70px;flex:none;color:var(--mut);font-size:11px}
+.viz .bar{flex:1;height:10px;border-radius:3px}
+.viz .gauge{position:relative;flex:1;height:10px;background:#111;border:1px solid var(--bd);border-radius:3px}
+.viz .gauge::before{content:"";position:absolute;left:60%;top:-2px;width:1px;height:12px;background:var(--dim)}
+.viz .gauge i{position:absolute;top:-3px;width:6px;height:14px;border-radius:2px;background:var(--ok);
+              transform:translateX(-50%);transition:left .12s linear}
+.viz .num{width:84px;flex:none;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
+
 /* ---- EQ ---- */
 .eq{display:flex;align-items:flex-end;gap:3px;height:190px;padding-top:6px}
 .band{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%}
@@ -86,6 +96,16 @@ button:hover{border-color:var(--ok);color:var(--ok)}
     <span class="name">电平归一化</span>
     <input type="range" id="loud" min="-30" max="-6" step="0.5">
     <span class="num" id="loud-num">—</span>
+  </div>
+  <div class="viz">
+    <span class="lbl">输入电平</span>
+    <div class="bar"><i id="bar-loud"></i></div>
+    <span class="num" id="loud-in">-∞</span>
+  </div>
+  <div class="viz">
+    <span class="lbl">动态增益</span>
+    <div class="gauge"><i id="loud-gain" style="left:60%"></i></div>
+    <span class="num" id="loud-gain-num">—</span>
   </div>
   <div class="row">
     <span class="name">混响湿度</span>
@@ -134,6 +154,22 @@ function bindWheel(input, onDelta, onDone) {
 
 /* ---------- 三个控制滑块 ---------- */
 const loud = el("loud"), wet = el("wet"), vol = el("vol");
+
+/* 正在拖动/滚动的控件不能再用轮询结果覆盖 —— 否则每 250ms 弹回一次, 表现为
+   "推上去自己弹下来, 要试好几次才到位"。原先用 document.activeElement 判断,
+   但鼠标拖动时焦点常常不在滑块上, 所以改用显式标志 + 松手后的短暂静默期。 */
+const busy = {};
+const markBusy = (k, ms) => { busy[k] = Date.now() + ms; };
+const isBusy = (k) => (busy[k] || 0) > Date.now();
+[["loud", loud], ["wet", wet], ["vol", vol]].forEach(([k, s]) => {
+  s.addEventListener("pointerdown", () => markBusy(k, 1e7));   // 拖动期间一直忙
+  const release = () => markBusy(k, 600);                      // 松手后 0.6s 内别覆盖
+  s.addEventListener("pointerup", release);
+  s.addEventListener("pointercancel", release);
+  s.addEventListener("blur", release);
+  s.addEventListener("keydown", () => markBusy(k, 600));
+  s.addEventListener("wheel", () => markBusy(k, 700), {passive:true});
+});
 loud.addEventListener("input", () => el("loud-num").textContent = (+loud.value).toFixed(1) + " dB");
 wet.addEventListener("input", () => el("wet-num").textContent = (+wet.value).toFixed(2));
 vol.addEventListener("input", () => el("vol-num").textContent = (+vol.value >= 0 ? "+" : "") + (+vol.value).toFixed(1) + " dB");
@@ -204,6 +240,19 @@ function updateMeters(levels) {
   }
 }
 
+/* ---------- 归一化的电平与动态增益 ---------- */
+function updateLoud(ll) {
+  if (!ll) return;
+  const pk = Math.max(ll.peak[0], ll.peak[1]);
+  const pkDb = 20 * Math.log10(Math.max(pk, 1e-6));
+  el("bar-loud").style.width = Math.max(0, Math.min(100, (pkDb + 60) / 60 * 100)) + "%";
+  el("loud-in").textContent = (pkDb <= -119 ? "-∞" : pkDb.toFixed(1)) + " dBFS";
+  const g = (ll.gain_db[0] + ll.gain_db[1]) / 2;      // 两声道共用同一增益
+  el("loud-gain-num").textContent = (g >= 0 ? "+" : "") + g.toFixed(1) + " dB";
+  // 推子: 量程 -18 ~ +12 dB, 0 dB 落在 60% 处(与刻度线对齐)
+  el("loud-gain").style.left = Math.max(0, Math.min(100, (g + 18) / 30 * 100)) + "%";
+}
+
 /* ---------- 轮询 ---------- */
 async function tick() {
   try {
@@ -219,10 +268,11 @@ async function tick() {
         v.textContent = val === 0 ? "" : (val > 0 ? "+" : "") + val.toFixed(1);
       });
     }
-    if (document.activeElement !== vol) { vol.value = d.volume_db; el("vol-num").textContent = (d.volume_db >= 0 ? "+" : "") + d.volume_db.toFixed(1) + " dB"; }
-    if (document.activeElement !== wet) { wet.value = d.wet; el("wet-num").textContent = (+d.wet).toFixed(2); }
-    if (document.activeElement !== loud && d.loudness) { loud.value = d.loudness.target_db; el("loud-num").textContent = (+d.loudness.target_db).toFixed(1) + " dB"; }
+    if (!isBusy("vol")) { vol.value = d.volume_db; el("vol-num").textContent = (d.volume_db >= 0 ? "+" : "") + d.volume_db.toFixed(1) + " dB"; }
+    if (!isBusy("wet")) { wet.value = d.wet; el("wet-num").textContent = (+d.wet).toFixed(2); }
+    if (!isBusy("loud") && d.loudness) { loud.value = d.loudness.target_db; el("loud-num").textContent = (+d.loudness.target_db).toFixed(1) + " dB"; }
     updateMeters(d.levels);
+    updateLoud(d.loudness_levels);
     state = d;
   } catch (e) { say("面板与 DSP 失联"); }
 }

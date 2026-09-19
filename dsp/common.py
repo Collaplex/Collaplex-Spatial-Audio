@@ -21,7 +21,8 @@ import struct
 EQ_BANDS = 32
 CHANNELS = 2
 EQ_PATH = "/dev/shm/collaplex-eq"
-LOCK_PATH = "/dev/shm/collaplex-eq.ch"
+LOCK_PATH = "/dev/shm/collaplex-eq.lock"
+LOUDNESS_SHM = "/dev/shm/collaplex-loudness"
 
 GAIN_LIMIT = 15.0
 VOLUME_LIMIT = 12.0
@@ -39,6 +40,7 @@ _PARAMS = struct.Struct("<34d")     # 32 段增益 + 总音量 + 湿量
 _VER = struct.Struct("<I")          # 参数版本号
 _CH = struct.Struct("<6d")          # in_rms in_peak out_rms out_peak gain_db 保留
 _STATE = struct.Struct("<12d")      # 2 声道
+_LOUD_F = struct.Struct("<f")       # 归一化 DSP 状态里的单精度字段
 
 PARAMS_OFF = 0
 VER_OFF = _PARAMS.size
@@ -124,3 +126,29 @@ def claim_channel() -> int:
 def defaults() -> tuple[list[float], float, float]:
     """默认参数: 全平直 + 0 dB 总音量 + 0.3 混响湿量。"""
     return [0.0] * EQ_BANDS, 0.0, 0.3
+
+
+def read_loudness_state() -> dict[str, object]:
+    """读响度归一化 DSP 的状态: 它看到的电平与当前施加的增益。
+
+    DSP 侧布局(每声道 32 字节, 见 dsp/loudness_norm.py):
+        +0 平滑能量   +4 块能量   +8 输入峰值   +12 当前增益(dB)
+        +64 目标响度(dB)
+    peak 是线性幅度, 前端自己转 dBFS。
+    """
+    try:
+        with open(LOUDNESS_SHM, "rb") as fh:
+            mm = mmap.mmap(fh.fileno(), 0, prot=mmap.PROT_READ)
+            try:
+                peaks = [_LOUD_F.unpack_from(mm, ch * 32 + 8)[0] for ch in range(CHANNELS)]
+                gains = [_LOUD_F.unpack_from(mm, ch * 32 + 12)[0] for ch in range(CHANNELS)]
+                target = _LOUD_F.unpack_from(mm, 64)[0]
+            finally:
+                mm.close()
+    except (OSError, ValueError):
+        return {"peak": [-120.0, -120.0], "gain_db": [0.0, 0.0], "target_db": -16.0}
+    return {
+        "peak": [float(p) for p in peaks],
+        "gain_db": [float(g) for g in gains],
+        "target_db": float(target),
+    }

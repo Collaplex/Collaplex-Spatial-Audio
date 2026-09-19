@@ -108,6 +108,7 @@ class Handler(BaseHTTPRequestHandler):
                 levels = common.read_state(self.store)
             self._send_json({
                 "freqs": common.EQ_FREQS,
+                "loudness_levels": common.read_loudness_state(),
                 "gains": gains,
                 "volume_db": volume_db,
                 "wet": wet,

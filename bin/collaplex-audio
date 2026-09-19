@@ -39,7 +39,8 @@ stop)
     rm -f "$CONF_DIR/10-collaplex-vsink.conf" "$CONF_DIR/20-collaplex-hrtf.conf" \
           "$CONF_DIR/30-collaplex-eq.conf" "$CONF_DIR/91-clock.conf"
     for pid in $(pids "$ROOT/dsp/"); do kill "$pid" 2>/dev/null || true; done
-    for pid in $(pids "$ROOT/web/server.py"); do kill "$pid" 2>/dev/null || true; done
+    # 面板按相对路径起过(如 .venv/bin/python web/server.py), 只匹配绝对路径会漏, 用后段匹配
+    for pid in $(pids "web/server.py"); do kill "$pid" 2>/dev/null || true; done
     rm -f /dev/shm/collaplex-eq /dev/shm/collaplex-loudness
     rm -f /dev/shm/collaplex-eq.lock /dev/shm/collaplex-loudness.lock
     systemctl --user restart pipewire pipewire-pulse wireplumber

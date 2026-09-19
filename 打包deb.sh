@@ -22,7 +22,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/share/collaplex-audio" "$STAGE/usr/bin"
 
 # ---- 源码 ----
-for d in dsp bin pipewire web hrir reverb 脚本; do
+for d in dsp bin pipewire web hrir reverb 脚本 systemd; do
     cp -a "$ROOT/$d" "$STAGE/usr/share/collaplex-audio/"
 done
 cp "$ROOT/README.md" "$STAGE/usr/share/collaplex-audio/"
@@ -43,7 +43,6 @@ Architecture: all
 Maintainer: Collaplex <collaplex@localhost>
 Installed-Size: ${SIZE}
 Depends: python3 (>= 3.10), python3-numpy, python3-scipy, pipewire, wireplumber
-Recommends: google-chrome | chromium
 Section: sound
 Priority: optional
 Description: Collaplex 音效 — 全局音频的响度归一化 + 双耳 HRTF + 32 段 EQ + 房间混响

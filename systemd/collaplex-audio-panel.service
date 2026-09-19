@@ -1,0 +1,15 @@
+[Unit]
+Description=Collaplex 音效 控制面板 (http://127.0.0.1:8789)
+Documentation=http://127.0.0.1:8789
+After=pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=__ROOT__
+ExecStart=__PY__ __ROOT__/web/server.py __PORT__
+Restart=no
+StandardOutput=null
+
+[Install]
+WantedBy=default.target

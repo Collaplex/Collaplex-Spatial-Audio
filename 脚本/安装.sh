@@ -107,3 +107,18 @@ for p in /proc/[0-9]*; do
 done
 echo "湿量进程数: $w (应为 2)"
 echo -n "默认输出: "; wpctl inspect @DEFAULT_SINK@ 2>/dev/null | grep -m1 "node.name" | sed 's/.*= //'
+
+# ---- 5. 面板自启(systemd --user, 登录即起) ----
+# 链路本身不需要服务: conf 在 ~/.config/pipewire/pipewire.conf.d/, PipeWire 起来就自动加载。
+UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$UNIT_DIR"
+sed -e "s|__ROOT__|$ROOT|g" -e "s|__PY__|$PY|g" -e "s|__PORT__|8789|g" \
+    "$ROOT/systemd/collaplex-audio-panel.service" > "$UNIT_DIR/collaplex-audio-panel.service"
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    if systemctl --user enable --now collaplex-audio-panel.service 2>/dev/null; then
+        echo "面板服务: 已启用(登录自启) http://127.0.0.1:8789"
+    else
+        echo "面板服务: 未能启用(可手动 collaplex-audio web)"
+    fi
+fi

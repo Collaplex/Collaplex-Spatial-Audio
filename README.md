@@ -63,6 +63,22 @@ collaplex-audio web      # 面板: 起控制面板并打开浏览器
 `WET=0.4 bash 脚本/安装.sh` 可指定初始湿量(默认 0.3)。
 面板端口可换: `WEB_PORT=8899 collaplex-audio web`。
 
+### 开机自启
+
+**链路不需要服务** —— 4 份 conf 部署在 `~/.config/pipewire/pipewire.conf.d/`, PipeWire 一起来
+就自动加载, 虚拟节点与 DSP 进程跟着起; 默认输出由 WirePlumber 记忆, 开机仍是 `collaplex_vsink`。
+所以 `start` 跑过一次就长期有效。
+
+**面板**用 systemd 用户服务 `collaplex-audio-panel.service` 自启(登录即起, `Restart=no`),
+`start` 时会自动装上并 enable。不要了:
+
+```sh
+systemctl --user disable --now collaplex-audio-panel.service   # 取消自启并停掉面板
+collaplex-audio stop                                          # 连链路一起还原成系统默认输出
+```
+
+音频设备与 PipeWire 都是**用户级**的, 所以"开机自启"实际是**登录自启**。
+
 ## 控制面板
 
 `collaplex-audio web` → http://127.0.0.1:8789
@@ -125,6 +141,8 @@ collaplex-audio web      # 面板: 起控制面板并打开浏览器
 - **峰值相关的失真, 纯音测不出来** —— 纯音峰值因子仅 3 dB, 音乐是 10~14 dB。
   必须用高峰值因子素材测, 见 `测试/test_limit.py`。
 - **改完 `watchdog` / 常驻脚本要重启巡检** —— 旧定义还在内存里按旧参数拉服务。
+- **按命令行找进程要按"后段"匹配** —— 面板若用相对路径起过(`.venv/bin/python web/server.py`),
+  只匹配绝对路径会漏杀 → 端口被占、新服务起不来。写 `*web/server.py*` 这种够特异的后段。
 - 清进程时匹配串要够特异: 写 `*dsp/eq.py*` 会匹配到**自己的命令行**而自杀,
   至少写成 `*python*dsp/eq.py*`。
 - **房间 IR 当混响用之前, 必须清掉里面的直达声 / 传播延迟** —— 否则就是**回声**。
@@ -197,4 +215,5 @@ uv run --with websocket-client python 测试/cdp_拖动验证.py    # CDP 真鼠
 | `hrir/` `reverb/` | HRIR(12 条)与房间 IR |
 | `脚本/安装.sh` `脚本/面板.sh` | 部署 / 起面板 |
 | `打包deb.sh` | 打 deb 到 `发布/` |
+| `systemd/collaplex-audio-panel.service` | 面板自启模板(`start` 时装到 `~/.config/systemd/user/`) |
 | `工具/重做混响IR.py` | 剪掉房间 IR 的直达声(裁静音 + 渐入), 原文件备份 `.orig.wav` |

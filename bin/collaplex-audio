@@ -1,0 +1,56 @@
+#!/bin/sh
+# Collaplex 音效 —— 主命令
+#
+#   collaplex-audio install     把链路装到 PipeWire(用户级, 不碰系统配置, 不自动启用)
+#   collaplex-audio uninstall   卸载(默认输出回到硬件设备)
+#   collaplex-audio status      看链路状态
+#   collaplex-audio panel       起控制面板 http://127.0.0.1:8789
+#
+# 设计取舍: 不自动启用。装完什么也不做, 必须手动 install —— 免得"一装就炸"式接管
+# 系统音频, 也不做开机自启。
+set -eu
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+[ -d "$ROOT/dsp" ] || ROOT=/usr/share/collaplex-audio
+CONF_DIR="$HOME/.config/pipewire/pipewire.conf.d"
+
+case "${1:-status}" in
+install)
+    exec "$ROOT/脚本/安装.sh"
+    ;;
+uninstall)
+    for f in 10-collaplex-vsink 20-collaplex-hrtf 30-collaplex-eq 91-clock; do
+        rm -f "$CONF_DIR/$f.conf"
+    done
+    rm -f "$HOME/.local/bin/collaplex-loudness-norm" \
+          "$HOME/.local/bin/collaplex-eq" \
+          "$HOME/.local/bin/collaplex-wet"
+    rm -f /dev/shm/collaplex-eq /dev/shm/collaplex-eq.lock0 /dev/shm/collaplex-eq.lock1
+    systemctl --user restart pipewire pipewire-pulse wireplumber
+    sleep 6
+    echo "已卸载。默认输出: $(wpctl inspect @DEFAULT_SINK@ 2>/dev/null | grep -m1 node.name | sed 's/.*= //')"
+    ;;
+status)
+    echo "=== Collaplex 音效 状态 ==="
+    echo -n "链路节点: "
+    pw-dump | grep -o '"node.name": "collaplex[^"]*"' | sed 's/.*: //' | sort -u | tr '\n' ' '
+    echo
+    echo -n "默认输出: "; wpctl inspect @DEFAULT_SINK@ 2>/dev/null | grep -m1 node.name | sed 's/.*= //'
+    for d in loudness_norm eq wet_gain; do
+        n=0
+        for p in /proc/[0-9]*; do
+            [ -r "$p/cmdline" ] || continue
+            c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
+            case "$c" in *python*"$d.py"*) n=$((n + 1));; esac
+        done
+        echo "  $d 进程: $n"
+    done
+    ;;
+panel)
+    exec "$ROOT/脚本/面板.sh" "$@"
+    ;;
+*)
+    echo "用法: collaplex-audio install|uninstall|status|panel"
+    exit 1
+    ;;
+esac

@@ -18,6 +18,9 @@ WRAPPER="$HOME/.local/bin/collaplex-loudness-norm"
 WET="${WET:-0.3}"
 HRTF_IN="collaplex_hrtf_in"
 EQ_IN="collaplex_eq_in"
+# 解释器: 默认用项目 venv(自带 scipy、版本可控); deb 安装场景没有 venv, 退回系统 python3
+PY="${PY:-$ROOT/.venv/bin/python}"
+[ -x "$PY" ] || PY=/usr/bin/python3
 
 # ---- 1. 探测数字输出 ----
 TARGET=$(pw-dump | /usr/bin/python3 -c '
@@ -37,8 +40,8 @@ echo "数字输出: $TARGET"
 
 # ---- 2. 部署 pipe 插件入口(必须 ASCII 路径) ----
 mkdir -p "$(dirname "$WRAPPER")"
-sed -e "s|__DSP__|$ROOT/dsp/loudness_norm.py|" "$ROOT/bin/collaplex-loudness-norm" > "$WRAPPER"
-sed -e "s|__PY__|$ROOT/.venv/bin/python|" -e "s|__DSP__|$ROOT/dsp/eq.py|" \
+sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/loudness_norm.py|" "$ROOT/bin/collaplex-loudness-norm" > "$WRAPPER"
+sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/eq.py|" \
     -e "s|__REVERB__|$ROOT/reverb/房间混响IR-96k.wav|" \
     "$ROOT/bin/collaplex-eq" > "$HOME/.local/bin/collaplex-eq"
 chmod 755 "$WRAPPER" "$HOME/.local/bin/collaplex-eq"
@@ -51,7 +54,7 @@ sed -e "s|__WRAPPER__|$WRAPPER|" -e "s|__HRTF_IN__|$HRTF_IN|" \
 sed -e "s|__HRIR__|$ROOT/hrir|" -e "s|__REVERB__|$ROOT/reverb/房间混响IR-96k.wav|" \
     -e "s|__EQ_IN__|$EQ_IN|" -e "s|__WET__|$WET|" -e "s|__WET_WRAPPER__|$HOME/.local/bin/collaplex-wet|" \
     "$ROOT/pipewire/20-collaplex-hrtf.conf" > "$CONF_DIR/20-collaplex-hrtf.conf"
-sed -e "s|__PY__|$ROOT/.venv/bin/python|" -e "s|__DSP__|$ROOT/dsp/wet_gain.py|" \
+sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/wet_gain.py|" \
     "$ROOT/bin/collaplex-wet" > "$HOME/.local/bin/collaplex-wet"
 chmod 755 "$HOME/.local/bin/collaplex-wet"
 sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__WET_WRAPPER__|$HOME/.local/bin/collaplex-wet|" -e "s|__TARGET__|$TARGET|" \
@@ -59,7 +62,7 @@ sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__WET_WRAPPER__|$
 cp "$ROOT/pipewire/91-collaplex-clock.conf" "$CONF_DIR/91-clock.conf"
 # 共享内存不存在时写入默认参数(全平直 / 0 dB / 湿量 0.3); 已存在则保留用户当前设置
 if [ ! -f /dev/shm/collaplex-eq ]; then
-    "$ROOT/.venv/bin/python" "$ROOT/dsp/初始化.py"
+    "$PY" "$ROOT/dsp/初始化.py"
 fi
 echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿量 $WET) / 30-collaplex-eq.conf"
 
@@ -67,9 +70,9 @@ echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿�
 for p in /proc/[0-9]*; do
     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in
-        "/usr/bin/python3 "*dsp/loudness_norm.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
-        *"/.venv/bin/python "*dsp/eq.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
-        *"/.venv/bin/python "*dsp/wet_gain.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
+        *python*dsp/loudness_norm.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
+        *python*dsp/eq.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
+        *python*dsp/wet_gain.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
     esac
 done
 sleep 1
@@ -90,7 +93,13 @@ echo "DSP 进程数: $n (归一化, 应为 2)"
 m=0
 for p in /proc/[0-9]*; do
     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
-    case "$c" in */dsp/eq.py*) m=$((m+1));; esac
+    case "$c" in *python*dsp/eq.py*) m=$((m+1));; esac
 done
 echo "EQ 进程数: $m (应为 2)"
+w=0
+for p in /proc/[0-9]*; do
+    c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
+    case "$c" in *python*dsp/wet_gain.py*) w=$((w+1));; esac
+done
+echo "湿量进程数: $w (应为 2)"
 echo -n "默认输出: "; wpctl inspect @DEFAULT_SINK@ 2>/dev/null | grep -m1 "node.name" | sed 's/.*= //'

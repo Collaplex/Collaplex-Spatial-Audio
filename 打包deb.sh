@@ -8,7 +8,7 @@
 #
 # 说明: 装到 /usr/share/collaplex-audio, 只提供 /usr/bin/collaplex-audio 一个入口。
 #       不带 venv(依赖系统 python3-numpy / python3-scipy), 不装到 pipewire 配置目录 ——
-#       也就是说**装完不会自动启用**, 要手动 collaplex-audio install, 也不做开机自启。
+#       也就是说**装完不会自动启用**, 要手动 collaplex-audio start, 也不做开机自启。
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -51,7 +51,7 @@ Description: Collaplex 音效 — 全局音频的响度归一化 + 双耳 HRTF +
  .
  HRTF 用 SADIE II 真人数据集(约克大学, 受试者 H4, 96 kHz / 512 tap)。
  .
- 装完不会动你的系统音频: 手动跑 collaplex-audio install 才接管, uninstall 即还原。
+ 装完不会动你的系统音频: 手动跑 collaplex-audio start 才接管, stop 即还原。
 EOF
 
 # ---- 构建 ----

@@ -12,7 +12,7 @@
 | 响度 | 无 | **响度归一化**(能量滑窗 + 6 dB/s 限速, 左右 flock 共享增益防声像漂) |
 | 混响 | 混在图里, 湿量写死 | convolver(3 秒长 IR) + **独立湿量级**(滑块实时可调) |
 | 控制 | 简单开关 | 本地面板 **62 Hz 推送**: 4 个双声道电平表 / 归一化电平与动态增益 / 湿度与总音量 / 32 段 EQ |
-| 分发 | deb | deb + 主命令 `collaplex-audio install/uninstall/status/panel`(装完不动系统音频) |
+| 分发 | deb | deb + 主命令 `collaplex-audio start/stop/web`(装完不动系统音频) |
 
 第二代把"能跑"升级成**"可调 + 可验"**: 每个效果级都能单独推流取证, 参数走共享内存立即生效,
 失真 / 削波 / 底噪 / 混响尾巴全部拿实测数据说话(见文末「实测」与「测试脚本」)。
@@ -34,36 +34,38 @@
 **源码树里(开发用):**
 
 ```sh
-collaplex-audio install          # 等价于 bash 脚本/安装.sh
+collaplex-audio start            # 等价于 bash 脚本/安装.sh
 ```
 
 **deb 包:**
 
 ```sh
 sudo dpkg -i collaplex-audio_1.0.0_all.deb
-collaplex-audio install          # 装完不会自动启用, 必须手动这一步
+collaplex-audio start            # 装完不会自动接管, 必须手动这一步
 ```
 
 依赖 `python3-numpy` / `python3-scipy` / `pipewire` / `wireplumber`。
-**装完不动你的系统音频**: 不装到 pipewire 配置目录、不做开机自启, 手动 `install` 才接管,
-`uninstall` 即还原。
+**装完不动你的系统音频**: 不写 pipewire 配置、不做开机自启, 手动 `start` 才接管,
+`stop` 即还原(默认输出回到硬件设备)。
 
 ## 主命令
 
+日常就三个动作:
+
 ```sh
-collaplex-audio install      # 接管(部署配置 + 重载 PipeWire + 自检)
-collaplex-audio uninstall    # 还原(默认输出回到硬件设备)
-collaplex-audio status       # 节点 / 默认输出 / 各 DSP 进程数
-collaplex-audio panel        # 控制面板 http://127.0.0.1:8789
+collaplex-audio start    # 启动: 接管系统音频(部署配置 + 重载 PipeWire + 自检)
+collaplex-audio stop     # 停止: 恢复系统默认输出, 同时关掉面板
+collaplex-audio web      # 面板: 起控制面板并打开浏览器
 ```
 
-安装脚本做的事: 探测数字输出 → 部署 pipe 插件入口 → 渲染 4 份配置 → **清掉残留 DSP**
+`start` 做的事: 探测数字输出 → 部署 pipe 插件入口 → 渲染 4 份配置 → **清掉残留 DSP**
 (占住共享槽位会让新实例起不来) → 重载 PipeWire → 自检。
 `WET=0.4 bash 脚本/安装.sh` 可指定初始湿量(默认 0.3)。
+面板端口可换: `WEB_PORT=8899 collaplex-audio web`。
 
 ## 控制面板
 
-`collaplex-audio panel` → http://127.0.0.1:8789
+`collaplex-audio web` → http://127.0.0.1:8789
 
 | 区域 | 内容 |
 |---|---|
@@ -79,7 +81,7 @@ collaplex-audio panel        # 控制面板 http://127.0.0.1:8789
   —— 每个只写 4~5 个「频率+增益」控制点, 在对数频率轴上插值成 32 段
 - 参数落点: `/dev/shm/collaplex-eq`(前端写、DSP 读, 版本号保证不会读到半更新);
   响度目标写 `~/.local/state/cinema-spatial/loudness.json`(归一化 DSP 每秒重读)
-- **改参数不用重装** —— 只有改 DSP 代码或 PipeWire 图才需要重跑 install
+- **改参数不用重装** —— 只有改 DSP 代码或 PipeWire 图才需要重跑 start
 
 ## 空间数据来源
 
@@ -177,7 +179,7 @@ uv run --with websocket-client python 测试/cdp_拖动验证.py    # CDP 真鼠
 | `dsp/wet_gain.py` | 混响湿量增益级 |
 | `dsp/初始化.py` | 写共享内存默认值(安装脚本调用) |
 | `dsp/状态.py` | 命令行看归一化的实时推子/电平 |
-| `bin/collaplex-audio` | 主命令(install / uninstall / status / panel) |
+| `bin/collaplex-audio` | 主命令(start / stop / web) |
 | `bin/*` | pipe 插件入口模板(ASCII 路径, 安装时渲染) |
 | `pipewire/10,20,30-*.conf` | 虚拟声卡+归一化 / HRTF+混响+湿量级 / EQ |
 | `pipewire/91-collaplex-clock.conf` | 强制 96 kHz(不然 IR 会被按 48k 降采样) |

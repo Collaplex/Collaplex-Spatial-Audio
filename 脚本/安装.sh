@@ -68,6 +68,7 @@ echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿�
 
 # ---- 4. 重启前清掉残留 DSP(占住共享槽位会让新实例起不来) ----
 for p in /proc/[0-9]*; do
+    [ -r "$p/cmdline" ] || continue
     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in
         *python*dsp/loudness_norm.py*) kill -9 "${p#/proc/}" 2>/dev/null || true;;
@@ -86,18 +87,21 @@ echo "=== 自检 ==="
 echo -n "节点: "; pw-dump | grep -o '"node.name": "collaplex[^"]*"' | sort -u | tr '\n' ' '; echo
 n=0
 for p in /proc/[0-9]*; do
+    [ -r "$p/cmdline" ] || continue
     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in "/usr/bin/python3 "*dsp/loudness_norm.py*) n=$((n+1));; esac
 done
 echo "DSP 进程数: $n (归一化, 应为 2)"
 m=0
 for p in /proc/[0-9]*; do
+    [ -r "$p/cmdline" ] || continue
     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in *python*dsp/eq.py*) m=$((m+1));; esac
 done
 echo "EQ 进程数: $m (应为 2)"
 w=0
 for p in /proc/[0-9]*; do
+    [ -r "$p/cmdline" ] || continue
     c=$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null) || continue
     case "$c" in *python*dsp/wet_gain.py*) w=$((w+1));; esac
 done

@@ -16,8 +16,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONF_DIR="$HOME/.config/pipewire/pipewire.conf.d"
 WRAPPER="$HOME/.local/bin/collaplex-loudness-norm"
 WET="${WET:-0.3}"
-VOL_DB="${VOL_DB:-6}"
-VOL="$(/usr/bin/python3 -c "print(f'{10**(${VOL_DB}/20):.4f}')")"
 HRTF_IN="collaplex_hrtf_in"
 EQ_IN="collaplex_eq_in"
 
@@ -50,11 +48,11 @@ mkdir -p "$CONF_DIR"
 sed -e "s|__WRAPPER__|$WRAPPER|" -e "s|__HRTF_IN__|$HRTF_IN|" \
     "$ROOT/pipewire/10-collaplex-vsink.conf" > "$CONF_DIR/10-collaplex-vsink.conf"
 sed -e "s|__HRIR__|$ROOT/hrir|" -e "s|__REVERB__|$ROOT/reverb/房间混响IR-96k.wav|" \
-    -e "s|__EQ_IN__|$EQ_IN|" -e "s|__WET__|$WET|" -e "s|__VOL__|$VOL|" \
+    -e "s|__EQ_IN__|$EQ_IN|" -e "s|__WET__|$WET|" \
     "$ROOT/pipewire/20-collaplex-hrtf.conf" > "$CONF_DIR/20-collaplex-hrtf.conf"
 sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__TARGET__|$TARGET|" \
     "$ROOT/pipewire/30-collaplex-eq.conf" > "$CONF_DIR/30-collaplex-eq.conf"
-echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(湿量 $WET, 总音量 +${VOL_DB}dB) / 30-collaplex-eq.conf"
+echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿量 $WET) / 30-collaplex-eq.conf"
 
 # ---- 4. 重启前清掉残留 DSP(占住共享槽位会让新实例起不来) ----
 for p in /proc/[0-9]*; do

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Collaplex 32 段 EQ + 总音量 —— pipe 插件入口
+#
+# pipe 插件的 command 只支持「程序 + 一个参数」, 所以参数全写在这里;
+# 且路径必须是纯 ASCII(中文路径会静默失效)。
+# 用项目 venv 的解释器(带 scipy/numpy)。
+export CX_RATE=96000
+exec "__PY__" "__DSP__"

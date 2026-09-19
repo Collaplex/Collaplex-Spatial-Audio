@@ -1,0 +1,13 @@
+{
+    "include": ["dsp", "web"],
+    "exclude": ["dsp/loudness_norm.py", "dsp/状态.py"],
+    "extraPaths": ["dsp"],
+    "venvPath": ".",
+    "venv": ".venv",
+    "typeCheckingMode": "strict",
+    "pythonVersion": "3.11",
+    "reportMissingTypeStubs": false,
+    "reportUnknownMemberType": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownVariableType": false
+}

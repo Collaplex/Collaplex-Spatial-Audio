@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collaplex 音效</title>
+<style>
+:root{
+  --bg:#0f0f0f; --card:#161616; --card-hi:#1c1c1c; --bd:#262626; --bd-hi:#343434;
+  --fg:#e8e8e8; --mut:#8a8a8a; --dim:#666; --ok:#4ade80; --ok-bg:#12211a; --ok-bd:#166534;
+  --r:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.wrap{max-width:1280px;margin:0 auto;padding:18px 20px 40px}
+header{display:flex;align-items:baseline;gap:16px;border-bottom:1px solid var(--bd);padding-bottom:12px}
+h1{font-size:15px;font-weight:600;margin:0;letter-spacing:.02em}
+.hint{color:var(--dim);font-size:11px}
+.meter{margin-left:auto;display:flex;gap:18px;align-items:baseline;color:var(--mut);font-size:11px}
+.meter b{color:var(--ok);font-weight:500}
+.rows{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px}
+.card h2{margin:0 0 12px;font-size:12px;font-weight:500;color:var(--mut);letter-spacing:.06em}
+.slider-row{display:flex;align-items:center;gap:14px}
+.val{min-width:78px;text-align:right;color:var(--ok);font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;height:22px;background:transparent;outline:none;flex:1}
+input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--bd-hi);border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;margin-top:-6px;
+  border-radius:50%;background:var(--ok);border:0;cursor:grab;box-shadow:0 0 0 3px rgba(74,222,128,.15)}
+input[type=range]:active::-webkit-slider-thumb{cursor:grabbing}
+input[type=range]::-moz-range-track{height:4px;background:var(--bd-hi);border-radius:2px}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--ok)}
+.eqcard{background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px 10px 10px}
+.eq{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;height:230px}
+.band{display:flex;flex-direction:column;align-items:center;gap:4px}
+.band input[type=range]{writing-mode:vertical-lr;direction:rtl;width:22px;height:190px;flex:none}
+.band .db{font-size:9px;color:var(--dim);font-variant-numeric:tabular-nums;height:11px}
+.freqs{display:grid;grid-template-columns:repeat(32,1fr);gap:2px;margin-top:6px}
+.freqs span{font-size:9px;color:var(--dim);text-align:center;transform:rotate(-60deg);transform-origin:center;
+  white-space:nowrap;height:26px}
+.actions{display:flex;gap:10px;margin-top:14px;align-items:center}
+button{background:var(--card-hi);color:var(--fg);border:1px solid var(--bd-hi);border-radius:8px;
+  padding:7px 14px;font:inherit;font-size:12px;cursor:pointer}
+button:hover{border-color:var(--ok);color:var(--ok)}
+button.lit{background:var(--ok-bg);border-color:var(--ok-bd);color:#bbf7d0}
+.toggle{display:flex;align-items:center;gap:7px;color:var(--mut);font-size:12px;cursor:pointer}
+.state{margin-left:auto;color:var(--dim);font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Collaplex 音效</h1>
+    <span class="hint">滚轮调滑块 · Shift+滚轮微调 · 双击归零</span>
+    <div class="meter">
+      <span>入 <b id="lvl-in">-∞</b> dBFS</span>
+      <span>出 <b id="lvl-out">-∞</b> dBFS</span>
+    </div>
+  </header>
+
+  <div class="rows">
+    <div class="card">
+      <h2>电平归一化（响度目标）</h2>
+      <div class="slider-row">
+        <input type="range" id="loud" min="-40" max="-5" step="0.5" value="-16">
+        <span class="val" id="loud-val">-16.0 dB</span>
+      </div>
+      <div class="actions">
+        <label class="toggle"><input type="checkbox" id="loud-on" checked> 启用</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>总音量放大</h2>
+      <div class="slider-row">
+        <input type="range" id="vol" min="-12" max="12" step="0.5" value="6">
+        <span class="val" id="vol-val">+6.0 dB</span>
+      </div>
+      <div class="actions">
+        <button id="reset-all">全部归零</button>
+        <button id="reset-eq">EQ 归零</button>
+        <span class="state" id="state">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="eqcard">
+    <div class="eq" id="eq"></div>
+    <div class="freqs" id="freqs"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let gains = new Array(32).fill(0);
+let freqs = [];
+let pending = null;
+
+function fmt(v, plus) {
+  const s = (v > 0 && plus ? "+" : "") + v.toFixed(1);
+  return s + " dB";
+}
+
+// 滑块 + 滚轮捕捉
+function bindWheel(el, onChange) {
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const step = e.shiftKey ? 0.1 : 0.5;
+    const dir = e.deltaY < 0 ? 1 : -1;
+    const next = parseFloat(el.value) + dir * step;
+    el.value = Math.min(parseFloat(el.max), Math.max(parseFloat(el.min), next));
+    onChange(parseFloat(el.value));
+  }, { passive: false });
+}
+
+function throttled(fn, ms) {
+  let last = 0, timer = null, lastArgs = null;
+  return function (...args) {
+    lastArgs = args;
+    const now = Date.now();
+    const run = () => { last = Date.now(); timer = null; fn(...lastArgs); };
+    if (now - last >= ms) run();
+    else if (!timer) timer = setTimeout(run, ms - (now - last));
+  };
+}
+
+const pushEq = throttled(async () => {
+  setState("写入 EQ…");
+  try {
+    const r = await fetch("/api/eq", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gains })
+    });
+    setState(r.ok ? "EQ 已生效" : "EQ 写入失败");
+  } catch (err) { setState("EQ 写入失败"); }
+}, 90);
+
+const pushVol = throttled(async (db) => {
+  setState("写入总音量…");
+  try {
+    const r = await fetch("/api/volume", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ db })
+    });
+    setState(r.ok ? "总音量已生效" : "写入失败");
+  } catch (err) { setState("写入失败"); }
+}, 90);
+
+const pushLoud = throttled(async (db, on) => {
+  setState("写入归一化…");
+  try {
+    const r = await fetch("/api/loudness", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_db: db, on })
+    });
+    setState(r.ok ? "归一化已生效" : "写入失败");
+  } catch (err) { setState("写入失败"); }
+}, 90);
+
+function setState(text) { $("state").textContent = text; }
+
+// 32 段 EQ 滑块
+function buildEq() {
+  const box = $("eq"), fbox = $("freqs");
+  box.innerHTML = ""; fbox.innerHTML = "";
+  for (let i = 0; i < 32; i++) {
+    const band = document.createElement("div");
+    band.className = "band";
+    const db = document.createElement("div");
+    db.className = "db"; db.id = "db" + i; db.textContent = "0.0";
+    const sl = document.createElement("input");
+    sl.type = "range"; sl.min = "-15"; sl.max = "15"; sl.step = "0.5"; sl.value = "0";
+    sl.dataset.index = i;
+    sl.addEventListener("input", () => {
+      gains[i] = parseFloat(sl.value);
+      $("db" + i).textContent = gains[i].toFixed(1);
+      pushEq();
+    });
+    bindWheel(sl, (v) => {
+      gains[i] = v; $("db" + i).textContent = v.toFixed(1); pushEq();
+    });
+    sl.addEventListener("dblclick", () => {
+      sl.value = "0"; gains[i] = 0; $("db" + i).textContent = "0.0"; pushEq();
+    });
+    band.appendChild(db); band.appendChild(sl);
+    box.appendChild(band);
+    const f = document.createElement("span");
+    f.textContent = freqs[i] ? (freqs[i] >= 1000 ? (freqs[i] / 1000) + "k" : String(freqs[i])) : "";
+    fbox.appendChild(f);
+  }
+}
+
+// 同步 DSP 实时电平
+async function poll() {
+  try {
+    const s = await (await fetch("/api/state")).json();
+    $("lvl-in").textContent = (s.levels.in_rms <= -120 ? "-∞" : s.levels.in_rms.toFixed(1));
+    $("lvl-out").textContent = (s.levels.out_rms <= -120 ? "-∞" : s.levels.out_rms.toFixed(1));
+  } catch (err) { /* 忽略 */ }
+}
+
+async function init() {
+  const s = await (await fetch("/api/state")).json();
+  freqs = s.freqs;
+  gains = s.gains.slice();
+  buildEq();
+  for (let i = 0; i < 32; i++) {
+    const sl = document.querySelector('.band input[data-index="' + i + '"]');
+    sl.value = String(gains[i]);
+    $("db" + i).textContent = gains[i].toFixed(1);
+  }
+  const loud = s.loudness || { target_db: -16, on: true };
+  $("loud").value = loud.target_db; $("loud-val").textContent = fmt(loud.target_db, false);
+  $("loud-on").checked = loud.on !== false;
+  $("vol").value = s.volume_db; $("vol-val").textContent = fmt(s.volume_db, true);
+
+  $("loud").addEventListener("input", (e) => {
+    const v = parseFloat(e.target.value);
+    $("loud-val").textContent = fmt(v, false);
+    pushLoud(v, $("loud-on").checked);
+  });
+  bindWheel($("loud"), (v) => { $("loud-val").textContent = fmt(v, false); pushLoud(v, $("loud-on").checked); });
+  $("loud-on").addEventListener("change", (e) => pushLoud(parseFloat($("loud").value), e.target.checked));
+
+  $("vol").addEventListener("input", (e) => {
+    const v = parseFloat(e.target.value);
+    $("vol-val").textContent = fmt(v, true);
+    pushVol(v);
+  });
+  bindWheel($("vol"), (v) => { $("vol-val").textContent = fmt(v, true); pushVol(v); });
+
+  $("reset-eq").addEventListener("click", () => {
+    gains = new Array(32).fill(0);
+    for (let i = 0; i < 32; i++) { document.querySelector('.band input[data-index="' + i + '"]').value = "0"; $("db" + i).textContent = "0.0"; }
+    pushEq();
+  });
+  $("reset-all").addEventListener("click", () => {
+    $("reset-eq").click();
+    $("vol").value = "0"; $("vol-val").textContent = fmt(0, true); pushVol(0);
+  });
+
+  setInterval(poll, 700);
+  poll();
+}
+
+init();
+</script>
+</body>
+</html>

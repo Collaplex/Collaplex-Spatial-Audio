@@ -37,6 +37,17 @@ filters2 = [ { type = bq_highshelf freq = 6000 gain = 0.0 } ]        # 高频架
 ★ 坑: `param_eq` 的端口名**带编号** —— `In 1` / `Out 1`(走 filters1)、`In 2` / `Out 2`(走 filters2)。
 写成 `:In` / `:Out` 会报 `unknown input port` 并让**整张图加载失败**(模块静默降级成直通, 节点都不建)。
 
+## 控制面板
+
+```sh
+bash 脚本/面板.sh            # http://127.0.0.1:8789
+```
+
+- 电平归一化(响度目标)、总音量、32 段 EQ **全部是滑块**:滚轮调节、Shift+滚轮微调(0.1 dB)、双击归零
+- EQ 是 1/3 倍频程 32 段(20 Hz … 25 kHz),每段 ±15 dB,**实时生效**(DSP 从共享内存读参数,不用重装)
+- 参数落点:`/dev/shm/collaplex-eq`(前端写、DSP 读,版本号保证不成半更新);响度目标写在
+  `~/.local/state/cinema-spatial/loudness.json`(归一化 DSP 每秒重读)
+
 ## 实测(2026-09-19)
 
 | 指标 | 数据 |

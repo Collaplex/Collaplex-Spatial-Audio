@@ -1,0 +1,15 @@
+#!/bin/sh
+# Collaplex 响度归一化 — pipe 插件入口 (本文件由 脚本/安装.sh 生成, 占位符 __DSP__)
+#
+# ★ pipe 插件的 command 只支持「程序 + 一个参数」(shebang 式 exec):
+#    `env A=B python3 x.py` 会报 "use -[v]S to pass options in shebang lines",
+#    所以参数全部写在这里, 配置里只给本脚本的路径。
+# ★ 本脚本路径必须**纯 ASCII**: pipe 插件给中文路径会一声不吭(节点照建、
+#    音频绕过、零日志)。脚本内部再去 exec 中文路径的 DSP 是没问题的。
+export LN_TARGET_DB=-16
+export LN_GATE_DB=-50
+export LN_MAX_BOOST=20
+export LN_MAX_CUT=20
+export LN_SLEW_DB_S=6
+export LN_RATE=48000
+exec /usr/bin/python3 "__DSP__"

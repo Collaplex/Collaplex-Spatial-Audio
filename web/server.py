@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast
 
@@ -24,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.p
 import common  # noqa: E402
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8789
+FRAME_SEC = 0.016                # 面板推送间隔(约 60 Hz)
 UI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
 LOUDNESS_JSON = os.path.expanduser("~/.local/state/cinema-spatial/loudness.json")
 
@@ -88,6 +90,43 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return cast(dict[str, object], data) if isinstance(data, dict) else {}
 
+    def _snapshot(self) -> dict[str, object]:
+        """面板一帧数据: 参数 + 双声道电平 + 归一化状态 + 响度设置。"""
+        with self.lock:
+            gains, volume_db, wet, _version = common.read_params(self.store)
+            levels = common.read_state(self.store)
+        return {
+            "freqs": common.EQ_FREQS,
+            "loudness_levels": common.read_loudness_state(),
+            "gains": gains,
+            "volume_db": volume_db,
+            "wet": wet,
+            "gain_limit": common.GAIN_LIMIT,
+            "volume_limit": common.VOLUME_LIMIT,
+            "levels": levels,
+            "loudness": read_loudness(),
+        }
+
+    def _stream(self) -> None:
+        """SSE 推送, 约 60 Hz。
+
+        DSP 的状态本来就每块更新一次(1024/96000 = 10.7 ms), 原来卡在面板 250 ms
+        轮询上, 电平表看着很跳。改成推送后前端能跟到帧率, 数字和条都细腻起来。
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            while True:
+                body = json.dumps(self._snapshot(), ensure_ascii=False)
+                self.wfile.write(("data: %s\n\n" % body).encode("utf-8"))
+                self.wfile.flush()
+                time.sleep(FRAME_SEC)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
     def do_GET(self) -> None:
         if self.path in ("/", "/index.html"):
             try:
@@ -103,20 +142,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.path == "/api/state":
-            with self.lock:
-                gains, volume_db, wet, _version = common.read_params(self.store)
-                levels = common.read_state(self.store)
-            self._send_json({
-                "freqs": common.EQ_FREQS,
-                "loudness_levels": common.read_loudness_state(),
-                "gains": gains,
-                "volume_db": volume_db,
-                "wet": wet,
-                "gain_limit": common.GAIN_LIMIT,
-                "volume_limit": common.VOLUME_LIMIT,
-                "levels": levels,
-                "loudness": read_loudness(),
-            })
+            self._send_json(self._snapshot())
+            return
+        if self.path == "/api/stream":
+            self._stream()
             return
         self.send_error(404)
 

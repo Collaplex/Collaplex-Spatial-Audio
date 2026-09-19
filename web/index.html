@@ -226,60 +226,79 @@ const METERS = [
 ];
 const PK = [["pk-inL","in_peak",0],["pk-outL","out_peak",0],["pk-inR","in_peak",1],["pk-outR","out_peak",1]];
 function fmt(db) { return db <= -119 ? "-∞" : db.toFixed(1); }
+/* 表头手感: 上升立刻跟(不丢瞬态), 下落按每帧固定 dB 平滑(不抖),
+   峰值保持 1.6 秒再回落。配上 60 Hz 推送, 数字才是"细腻"而不是乱跳。 */
+const FALL_DB = 0.9;
+const HOLD_SEC = 1.6;
+const disp = {}, pkh = {}, pkt = {};
+function meterSet(id, db) {
+  const prev = disp[id];
+  const cur = (prev === undefined || db >= prev) ? db : Math.max(db, prev - FALL_DB);
+  disp[id] = cur;
+  el("bar-" + id).style.width = Math.max(0, Math.min(100, (cur + 60) / 60 * 100)) + "%";
+  el("val-" + id).textContent = fmt(cur);
+}
+function peakSet(id, db) {
+  const now = Date.now();
+  if (pkh[id] === undefined || db >= pkh[id]) {
+    pkh[id] = db;
+    pkt[id] = now + HOLD_SEC * 1000;
+  } else if (now > (pkt[id] || 0)) {
+    pkh[id] = Math.max(db, pkh[id] - FALL_DB);
+  }
+  el(id).textContent = pkh[id] <= -119 ? "" : fmt(pkh[id]);
+}
 function updateMeters(levels) {
   if (!levels) return;
-  for (const [id, key, ch] of METERS) {
-    const db = (levels[key] || [-120, -120])[ch];
-    const pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
-    el("bar-" + id).style.width = pct + "%";
-    el("val-" + id).textContent = fmt(db);
-  }
-  for (const [id, key, ch] of PK) {
-    const db = (levels[key] || [-120, -120])[ch];
-    el(id).textContent = db <= -119 ? "" : fmt(db);
-  }
+  for (const [id, key, ch] of METERS) meterSet(id, (levels[key] || [-120, -120])[ch]);
+  for (const [id, key, ch] of PK) peakSet(id, (levels[key] || [-120, -120])[ch]);
 }
 
 /* ---------- 归一化的电平与动态增益 ---------- */
 function updateLoud(ll) {
   if (!ll) return;
-  const pk = Math.max(ll.peak[0], ll.peak[1]);
-  const pkDb = 20 * Math.log10(Math.max(pk, 1e-6));
-  el("bar-loud").style.width = Math.max(0, Math.min(100, (pkDb + 60) / 60 * 100)) + "%";
-  el("loud-in").textContent = (pkDb <= -119 ? "-∞" : pkDb.toFixed(1)) + " dBFS";
+  const pkDb = 20 * Math.log10(Math.max(Math.max(ll.peak[0], ll.peak[1]), 1e-6));
+  const prev = disp["loud"];
+  const cur = (prev === undefined || pkDb >= prev) ? pkDb : Math.max(pkDb, prev - FALL_DB);
+  disp["loud"] = cur;
+  el("bar-loud").style.width = Math.max(0, Math.min(100, (cur + 60) / 60 * 100)) + "%";
+  el("loud-in").textContent = fmt(cur) + " dBFS";
   const g = (ll.gain_db[0] + ll.gain_db[1]) / 2;      // 两声道共用同一增益
-  el("loud-gain-num").textContent = (g >= 0 ? "+" : "") + g.toFixed(1) + " dB";
+  el("loud-gain-num").textContent = (g >= 0 ? "+" : "") + g.toFixed(2) + " dB";
   // 推子: 量程 -18 ~ +12 dB, 0 dB 落在 60% 处(与刻度线对齐)
   el("loud-gain").style.left = Math.max(0, Math.min(100, (g + 18) / 30 * 100)) + "%";
 }
 
-/* ---------- 轮询 ---------- */
-async function tick() {
-  try {
-    const r = await fetch("/api/state");
-    const d = await r.json();
-    if (state === null) {
-      buildEq(d.freqs);
-      gains = d.gains.slice();
-      eqBox.querySelectorAll("input").forEach((inp) => {
-        inp.value = gains[+inp.dataset.index];
-        const v = inp.previousElementSibling;
-        const val = parseFloat(inp.value);
-        v.textContent = val === 0 ? "" : (val > 0 ? "+" : "") + val.toFixed(1);
-      });
-    }
-    if (!isBusy("vol")) { vol.value = d.volume_db; el("vol-num").textContent = (d.volume_db >= 0 ? "+" : "") + d.volume_db.toFixed(1) + " dB"; }
-    if (!isBusy("wet")) { wet.value = d.wet; el("wet-num").textContent = (+d.wet).toFixed(2); }
-    if (!isBusy("loud") && d.loudness) { loud.value = d.loudness.target_db; el("loud-num").textContent = (+d.loudness.target_db).toFixed(1) + " dB"; }
-    updateMeters(d.levels);
-    updateLoud(d.loudness_levels);
-    state = d;
-  } catch (e) { say("面板与 DSP 失联"); }
+/* ---------- 实时推送(约 60 Hz) ---------- */
+/* DSP 的状态本来就每块更新一次(1024/96000 = 10.7 ms)。原来 250 ms 轮询把表和
+   数字拖成了幻灯片, 换成 SSE 推送后按帧渲染。 */
+const es = new EventSource("/api/stream");
+es.onmessage = (ev) => {
+  try { applyState(JSON.parse(ev.data)); } catch (err) { /* 坏帧忽略 */ }
+};
+es.onerror = () => say("面板与 DSP 失联, 重连中");
+
+function applyState(d) {
+  if (state === null) {
+    buildEq(d.freqs);
+    gains = d.gains.slice();
+    eqBox.querySelectorAll("input").forEach((inp) => {
+      inp.value = gains[+inp.dataset.index];
+      const v = inp.previousElementSibling;
+      const val = parseFloat(inp.value);
+      v.textContent = val === 0 ? "" : (val > 0 ? "+" : "") + val.toFixed(1);
+    });
+  }
+  if (!isBusy("vol")) { vol.value = d.volume_db; el("vol-num").textContent = (d.volume_db >= 0 ? "+" : "") + d.volume_db.toFixed(1) + " dB"; }
+  if (!isBusy("wet")) { wet.value = d.wet; el("wet-num").textContent = (+d.wet).toFixed(2); }
+  if (!isBusy("loud") && d.loudness) { loud.value = d.loudness.target_db; el("loud-num").textContent = (+d.loudness.target_db).toFixed(1) + " dB"; }
+  updateMeters(d.levels);
+  updateLoud(d.loudness_levels);
+  state = d;
 }
 el("flat").addEventListener("click", () => { gains = new Array(32).fill(0); commitEq(); buildEq(state ? state.freqs : []); });
-el("reset").addEventListener("click", () => { state = null; tick(); });
-tick();
-setInterval(tick, 250);
+el("reset").addEventListener("click", () => { state = null; fetch("/api/state").then(r => r.json()).then(applyState).catch(() => say("面板与 DSP 失联")); });
+fetch("/api/state").then(r => r.json()).then(applyState).catch(() => say("面板与 DSP 失联"));
 </script>
 </body>
 </html>

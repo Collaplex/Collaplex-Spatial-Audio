@@ -52,6 +52,7 @@ sed -e "s|__HRIR__|$ROOT/hrir|" -e "s|__REVERB__|$ROOT/reverb/房间混响IR-96k
     "$ROOT/pipewire/20-collaplex-hrtf.conf" > "$CONF_DIR/20-collaplex-hrtf.conf"
 sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__TARGET__|$TARGET|" \
     "$ROOT/pipewire/30-collaplex-eq.conf" > "$CONF_DIR/30-collaplex-eq.conf"
+cp "$ROOT/pipewire/91-collaplex-clock.conf" "$CONF_DIR/91-clock.conf"
 echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿量 $WET) / 30-collaplex-eq.conf"
 
 # ---- 4. 重启前清掉残留 DSP(占住共享槽位会让新实例起不来) ----

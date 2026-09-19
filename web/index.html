@@ -53,6 +53,11 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-ra
               transform:translateX(-50%);transition:left .12s linear}
 .viz .num{width:84px;flex:none;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
 
+/* ---- EQ 预设 ---- */
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.presets button{padding:4px 11px;font-size:11px}
+.presets button.on{border-color:var(--ok);color:var(--ok);background:#12211a}
+
 /* ---- EQ ---- */
 .eq{display:flex;align-items:flex-end;gap:3px;height:190px;padding-top:6px}
 .band{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%}
@@ -121,6 +126,7 @@ button:hover{border-color:var(--ok);color:var(--ok)}
 
 <div class="card">
   <h2>32 段 EQ（1/3 倍频程 · ±15 dB）</h2>
+  <div class="presets" id="presets"></div>
   <div class="eq" id="eq"></div>
   <div class="btns">
     <button id="flat">全部归零</button>
@@ -219,6 +225,60 @@ function buildEq(freqs) {
   });
 }
 
+/* ---------- EQ 预设 ---------- */
+/* 控制点 = [频率 Hz, 增益 dB], 在对数频率轴上插值成 32 段 —— 比写死 32 个数好维护。 */
+const PRESETS = {
+  "平直": [],
+  "流行": [[60, 2.5], [250, -1], [1000, 1], [4000, 2.5], [12000, 3]],
+  "摇滚": [[60, 5], [250, -2], [1000, -1], [3500, 3], [12000, 5]],
+  "爵士": [[60, 4], [200, 1.5], [800, -1], [3000, 1.5], [12000, 3]],
+  "古典": [[60, 3], [400, -1], [2000, 0.5], [8000, 2], [16000, 3]],
+  "人声": [[100, -3], [500, -1], [2000, 4], [6000, 2], [12000, 1]],
+  "低音": [[40, 7], [120, 5], [300, 2], [1000, 0], [4000, -1]],
+  "高音": [[200, -1], [2000, 1], [6000, 4], [14000, 6]],
+  "深夜": [[60, 4], [200, 3], [1000, 0], [4000, 1], [12000, 3]],   // 小音量等响度补偿
+  "柔化": [[3000, -2], [6000, -4], [12000, -5], [16000, -3]],      // 削刺耳高频
+};
+function curveTo(pts, freqs) {
+  if (!pts.length) return freqs.map(() => 0);
+  const first = pts[0], last = pts[pts.length - 1];
+  return freqs.map((f) => {
+    if (f <= first[0]) return first[1];
+    if (f >= last[0]) return last[1];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (f >= a[0] && f <= b[0]) {
+        const t = Math.log(f / a[0]) / Math.log(b[0] / a[0]);
+        return a[1] + (b[1] - a[1]) * t;
+      }
+    }
+    return 0;
+  });
+}
+function applyPreset(name) {
+  const freqs = state ? state.freqs : [];
+  if (!freqs.length) return;
+  const vals = curveTo(PRESETS[name], freqs).map((g) => Math.round(g * 2) / 2);   // 对齐 0.5 步进
+  gains = vals.slice();
+  eqBox.querySelectorAll("input").forEach((inp, i) => {
+    inp.value = vals[i];
+    const v = inp.previousElementSibling;
+    v.textContent = vals[i] === 0 ? "" : (vals[i] > 0 ? "+" : "") + vals[i].toFixed(1);
+  });
+  commitEq();
+  say("EQ 预设: " + name);
+}
+function buildPresets() {
+  const box = el("presets");
+  box.innerHTML = "";
+  Object.keys(PRESETS).forEach((name) => {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.addEventListener("click", () => applyPreset(name));
+    box.appendChild(b);
+  });
+}
+
 /* ---------- 电平表 ---------- */
 const METERS = [
   ["inL", "in_rms", 0], ["outL", "out_rms", 0],
@@ -280,6 +340,7 @@ es.onerror = () => say("面板与 DSP 失联, 重连中");
 
 function applyState(d) {
   if (state === null) {
+    buildPresets();
     buildEq(d.freqs);
     gains = d.gains.slice();
     eqBox.querySelectorAll("input").forEach((inp) => {

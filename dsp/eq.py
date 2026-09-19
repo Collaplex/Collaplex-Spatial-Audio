@@ -47,6 +47,27 @@ def build_sos(gains: list[float], fs: int) -> np.ndarray:
                      for freq, gain in zip(common.EQ_FREQS, gains)], dtype=np.float64)
 
 
+CEILING = 0.891          # -1 dBFS 上限
+KNEE = 0.25              # 软拐点宽度
+
+
+def soft_limit(x: np.ndarray, ceiling: float = CEILING, knee: float = KNEE) -> np.ndarray:
+    """软限幅: 幅值在 ceiling-knee 以内的样本原样通过, 超过的部分用 tanh 平滑渐近 ceiling。
+
+    与 np.clip 的关键区别: 不产生平顶。硬削(平顶)听感就是"炸麦", 而且削掉的峰值
+    不增加响度; 软限幅只把峰值压下来, 波形其余部分不动, 所以放大后响度能真正上来。
+    """
+    threshold = ceiling - knee
+    magnitude = np.abs(x)
+    over = magnitude > threshold
+    if not bool(np.any(over)):
+        return x
+    shaped = threshold + knee * np.tanh((magnitude[over] - threshold) / knee)
+    result = x.copy()
+    result[over] = np.sign(x[over]) * shaped
+    return result
+
+
 def level_db(block: np.ndarray) -> tuple[float, float]:
     """返回 (RMS dBFS, 峰值 dBFS)。"""
     if block.size == 0:
@@ -88,13 +109,13 @@ def main() -> None:
             x = np.resize(x, N)
 
         y, zi = sosfilt(sos, x, zi=zi)
-        out = y * volume
+        out = soft_limit(y * volume)
 
         in_rms, in_peak = level_db(x)
-        out_rms, out_peak = level_db(np.clip(out, -1.0, 1.0))
+        out_rms, out_peak = level_db(out)
         common.write_state(store, in_rms, in_peak, out_rms, out_peak, volume_db)
 
-        stdout.write(np.clip(out, -1.0, 1.0).astype("<f4").tobytes())
+        stdout.write(out.astype("<f4").tobytes())
         stdout.flush()
 
 

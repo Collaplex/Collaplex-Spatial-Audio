@@ -2,7 +2,13 @@
 
 参数实时来自共享内存(dsp/common.py): 32 段增益(dB) + 总音量(dB)。
 做法: 每段一个 peaking biquad, 32 段级联成二阶节(sos), 用 scipy.signal.sosfilt
-逐块滤波(C 实现, 保留滤波状态, 无额外延迟), 末级乘总音量。
+逐块滤波(C 实现, 保留滤波状态, 无额外延迟), 末级乘总音量, 再做软限幅兜底。
+
+混响不在这里: 它由 PipeWire 的 convolver 完成(能跑 3 秒长 IR), 湿量由独立的
+湿量增益级(wet_gain.py)实时控制 —— 图里的 mixer 增益是加载时定死的, 改不了。
+
+每声道一个进程(pipe 插件按声道 fork, 命令相同), 靠 flock 抢声道槽位(0 左 / 1 右),
+各写自己那份电平状态 —— 前端因此能画双声道共 4 个电平表。
 """
 from __future__ import annotations
 
@@ -19,15 +25,16 @@ import common  # noqa: E402
 
 RATE = int(os.environ.get("CX_RATE", "96000"))
 BLOCK_BYTES = 4096
-N = BLOCK_BYTES // 4            # 每块样本数(1024)
 Q = 4.318                       # 1/3 倍频程
+
+CEILING = 0.99                  # -0.09 dBFS 绝对上限(只防真削波)
+KNEE = 0.06                     # 软拐点: 只有峰值超过约 -0.63 dBFS 才介入
+# 注: 原先 ceiling=0.891 / knee=0.25 让介入点低到 -3.9 dBFS, 而正常音乐峰值在 -4~0 dBFS,
+#     于是限幅长期工作 -> 中低频谐波失真(听感"沙沙")。阈值贴近 0 后平时完全透明。
 
 
 def design_peaking(freq: float, gain_db: float, fs: int, q: float) -> list[float]:
-    """RBJ cookbook 的 peaking biquad, 返回一行 sos [b0 b1 b2 1 a1 a2]。
-
-    gain_db = 0 时结果恰好是单位传递函数, 所以 32 段可以一直挂着(不必增删节点)。
-    """
+    """RBJ cookbook 的 peaking biquad, 返回 sos 一行 [b0 b1 b2 1 a1 a2]。"""
     amp = 10.0 ** (gain_db / 40.0)
     w0 = 2.0 * math.pi * freq / fs
     alpha = math.sin(w0) / (2.0 * q)
@@ -42,22 +49,15 @@ def design_peaking(freq: float, gain_db: float, fs: int, q: float) -> list[float
 
 
 def build_sos(gains: list[float], fs: int) -> np.ndarray:
-    """32 段增益 -> sos 矩阵(32 x 6)。"""
+    """32 段 peaking 级联成二阶节(平直段的 biquad 恰好是单位响应)。"""
     return np.array([design_peaking(freq, gain, fs, Q)
                      for freq, gain in zip(common.EQ_FREQS, gains)], dtype=np.float64)
 
 
-CEILING = 0.99           # -0.09 dBFS 绝对上限(只防真削波)
-KNEE = 0.06              # 软拐点: 只有峰值超过约 -0.63 dBFS 才介入
-# 注: 原先 ceiling=0.891 / knee=0.25 让介入点低到 -3.9 dBFS, 而正常音乐峰值在 -4~0 dBFS,
-#     于是限幅长期工作 -> 中低频谐波失真(听感"沙沙")。阈值贴近 0 后平时完全透明。
-
-
 def soft_limit(x: np.ndarray, ceiling: float = CEILING, knee: float = KNEE) -> np.ndarray:
-    """软限幅: 幅值在 ceiling-knee 以内的样本原样通过, 超过的部分用 tanh 平滑渐近 ceiling。
+    """软限幅: 幅值在 ceiling-knee 以内的样本原样通过, 超出部分用 tanh 平滑渐近 ceiling。
 
-    与 np.clip 的关键区别: 不产生平顶。硬削(平顶)听感就是"炸麦", 而且削掉的峰值
-    不增加响度; 软限幅只把峰值压下来, 波形其余部分不动, 所以放大后响度能真正上来。
+    和 np.clip 的区别: 不产生平顶(硬削听起来像炸麦), 只把峰值压下来。
     """
     threshold = ceiling - knee
     magnitude = np.abs(x)
@@ -71,7 +71,7 @@ def soft_limit(x: np.ndarray, ceiling: float = CEILING, knee: float = KNEE) -> n
 
 
 def level_db(block: np.ndarray) -> tuple[float, float]:
-    """返回 (RMS dBFS, 峰值 dBFS)。"""
+    """(RMS dBFS, 峰值 dBFS)。"""
     if block.size == 0:
         return -120.0, -120.0
     rms = float(np.sqrt(np.mean(block * block)))
@@ -83,12 +83,13 @@ def level_db(block: np.ndarray) -> tuple[float, float]:
 
 def main() -> None:
     store = common.open_store()
+    channel = common.claim_channel()
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
 
     version = -1
-    sos = build_sos(common.defaults()[0], RATE)
-    zi = np.zeros((sos.shape[0], 2), dtype=np.float64)
+    sos: np.ndarray | None = None
+    zi: np.ndarray | None = None
     volume = 1.0
     volume_db = 0.0
 
@@ -99,10 +100,11 @@ def main() -> None:
         if len(raw) % 4:
             raw = raw[: len(raw) - (len(raw) % 4)]
 
-        gains, want_volume_db, new_version = common.read_params(store)
+        gains, want_volume_db, _wet, new_version = common.read_params(store)
         if new_version != version:
             version = new_version
             sos = build_sos(gains, RATE)
+            zi = np.zeros((sos.shape[0], 2), dtype=np.float64)
             volume_db = want_volume_db
             volume = 10.0 ** (volume_db / 20.0)
 
@@ -110,12 +112,15 @@ def main() -> None:
         if x.size == 0:
             continue
 
-        y, zi = sosfilt(sos, x, zi=zi)
-        out = soft_limit(y * volume)
+        if sos is None or zi is None:
+            out = np.zeros(x.size, dtype=np.float64)
+        else:
+            y, zi = sosfilt(sos, x, zi=zi)
+            out = soft_limit(y * volume)
 
         in_rms, in_peak = level_db(x)
         out_rms, out_peak = level_db(out)
-        common.write_state(store, in_rms, in_peak, out_rms, out_peak, volume_db)
+        common.write_state(store, channel, in_rms, in_peak, out_rms, out_peak, volume_db)
 
         stdout.write(out.astype("<f4").tobytes())
         stdout.flush()

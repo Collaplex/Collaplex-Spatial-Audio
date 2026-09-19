@@ -1,0 +1,4 @@
+#!/bin/sh
+# Collaplex 混响湿量增益级 —— pipe 插件入口
+export CX_RATE=96000
+exec "__PY__" "__DSP__"

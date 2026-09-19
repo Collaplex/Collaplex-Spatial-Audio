@@ -51,7 +51,7 @@ BLOCK = int(os.environ.get("LN_BLOCK", "4096"))
 PEAK_CEIL = float(os.environ.get("LN_PEAK_CEIL", "0.985"))
 FADE_BLOCKS = int(os.environ.get("LN_FADE_BLOCKS", "4"))       # 起播淡入块数(~170ms @96k/4096)
 FADE_GAP_BLOCKS = int(os.environ.get("LN_FADE_GAP_BLOCKS", "24"))  # 连续静音多少块算"重新起播"
-IDLE_LIMIT = int(os.environ.get("LN_IDLE_LIMIT", "10"))   # 连续无数据多少秒后自行退出
+IDLE_LIMIT = int(os.environ.get("LN_IDLE_LIMIT", "600"))   # 兜底: 连续无数据这么多秒才退出
 DEBUG = os.environ.get("LN_DEBUG", "") not in ("", "0")
 
 _ERR = sys.stderr
@@ -198,20 +198,25 @@ def main() -> None:
     fade_left = 0
     silent_blocks = 0
 
+    # 父进程(filter-chain)死后怎么退出: 用"启动时的 ppid"做基准比对。
+    #   为什么不用别的判据:
+    #   1) filter-chain 死后管道写端不一定关闭, read() 不一定返回 EOF;
+    #   2) 孤儿会被 systemd(subreaper)收养成 session manager 的子进程, ppid 不一定是 1,
+    #      所以写死 "ppid==1" 不可靠 —— 但**跟启动时的 ppid 比**可靠。
+    #   ★ 绝不用"若干秒无数据"当判据: 音频流本来就有静默期(视频间隙/暂停/切歌),
+    #     按它退出会在正常使用中自断链路, 表现为"刷几条视频后没声音, 刷新才恢复"。
+    _ppid0 = os.getppid()
+
     while True:
-        # ★ 用 select 带超时读。为什么必须这样:
-        #   1) filter-chain 死后管道写端不一定关闭, 所以 read() 不一定返回 EOF;
-        #   2) 孤儿进程会被 systemd(subreaper) 收养, ppid 变成 session manager 而不是 1,
-        #      所以 "ppid==1" 也不可靠。
-        #   唯一可靠的判据 = 连续若干秒收不到任何数据(链路已断)。到时自行退出,
-        #   否则每重启一次音频就会攒一对僵尸进程、霸占左右槽位锁。
         try:
             ready, _, _ = select.select([stdin], [], [], 1.0)
         except Exception:
             ready = [stdin]
         if not ready:
             idle += 1
-            if idle >= IDLE_LIMIT or os.getppid() == 1:
+            if os.getppid() != _ppid0:
+                break
+            if idle >= IDLE_LIMIT:          # 兜底(默认 600s), 防止极长静默留下孤儿
                 break
             continue
         idle = 0

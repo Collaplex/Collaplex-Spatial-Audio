@@ -1,0 +1,16 @@
+# 虚拟环境
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# 构建与发布产物
+build/
+dist/
+发布/
+*.deb
+
+# 本地状态与日志
+*.log

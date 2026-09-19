@@ -26,6 +26,8 @@ for d in dsp bin pipewire web hrir reverb 脚本; do
     cp -a "$ROOT/$d" "$STAGE/usr/share/collaplex-audio/"
 done
 cp "$ROOT/README.md" "$STAGE/usr/share/collaplex-audio/"
+# 备份文件不入包(IR 的 .orig 备份只留在源码树里)
+find "$STAGE" -name "*.orig.wav" -delete
 find "$STAGE/usr/share" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 chmod -R a+rX "$STAGE/usr/share"
 

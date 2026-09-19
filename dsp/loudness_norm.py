@@ -181,6 +181,7 @@ def main() -> None:
     # 平滑状态
     energy_smooth = 0.0
     gain_db = 0.0
+    g_prev = 1.0                       # 上一块末尾的线性增益(块间斜坡用)
     _n: int = 0
 
     block_seconds = BLOCK / 4.0 / RATE          # 每块时长(单声道 float32)
@@ -286,7 +287,10 @@ def main() -> None:
                 gain_db = 20.0 * math.log10(g + EPS)     # 状态跟随, 下块再按限速恢复
 
             # ---- 6) 施加增益 ----
-            y = x * g
+            # 块内逐样本线性过渡: 整块共用一个增益会在块边界留下台阶(zipper 噪声),
+            # 表现为中低频的微弱谐波。用"上一块增益 -> 本块增益"的斜坡把它抹平。
+            y = x * np.linspace(g_prev, g, x.size, dtype=np.float64)
+            g_prev = g
             if fade_left > 0:                           # 起播淡入: 线性爬升, 压掉卷积过冲
                 y = y * ((FADE_BLOCKS - fade_left + 1) / float(FADE_BLOCKS))
                 fade_left -= 1

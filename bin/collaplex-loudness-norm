@@ -11,6 +11,6 @@ export LN_GATE_DB=-50
 export LN_MAX_BOOST=20
 export LN_MAX_CUT=20
 export LN_SLEW_DB_S=6
-export LN_RATE=48000
+export LN_RATE=96000
 export LN_IDLE_LIMIT=999999
 exec /usr/bin/python3 "__DSP__"

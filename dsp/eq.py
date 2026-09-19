@@ -47,8 +47,10 @@ def build_sos(gains: list[float], fs: int) -> np.ndarray:
                      for freq, gain in zip(common.EQ_FREQS, gains)], dtype=np.float64)
 
 
-CEILING = 0.891          # -1 dBFS 上限
-KNEE = 0.25              # 软拐点宽度
+CEILING = 0.99           # -0.09 dBFS 绝对上限(只防真削波)
+KNEE = 0.06              # 软拐点: 只有峰值超过约 -0.63 dBFS 才介入
+# 注: 原先 ceiling=0.891 / knee=0.25 让介入点低到 -3.9 dBFS, 而正常音乐峰值在 -4~0 dBFS,
+#     于是限幅长期工作 -> 中低频谐波失真(听感"沙沙")。阈值贴近 0 后平时完全透明。
 
 
 def soft_limit(x: np.ndarray, ceiling: float = CEILING, knee: float = KNEE) -> np.ndarray:

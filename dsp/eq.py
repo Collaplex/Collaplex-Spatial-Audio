@@ -105,8 +105,8 @@ def main() -> None:
             volume = 10.0 ** (volume_db / 20.0)
 
         x = np.frombuffer(raw, dtype="<f4").astype(np.float64)
-        if x.size != N:
-            x = np.resize(x, N)
+        if x.size == 0:
+            continue
 
         y, zi = sosfilt(sos, x, zi=zi)
         out = soft_limit(y * volume)

@@ -180,6 +180,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             common.write_params(self.store, gains, volume_db, wet)
+            common.save_params(gains, volume_db, wet)   # 落盘, 重启后自动恢复
         self._send_json({"ok": True, "gains": gains, "volume_db": volume_db, "wet": wet})
 
     def log_message(self, format: str, *args: object) -> None:

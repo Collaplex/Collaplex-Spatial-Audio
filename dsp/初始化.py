@@ -1,6 +1,7 @@
-"""把共享内存参数写成默认值(安装脚本在共享内存不存在时调用)。
+"""把参数写进共享内存: 优先用上次落盘的(params.json), 没有则用默认值。
 
-默认: 全平直 / 总音量 0 dB / 混响湿量 0.3。
+安装脚本在共享内存不存在时调用它。平时开机后由 dsp/common.py 的 open_store()
+自动完成同样的恢复(见那里的注释), 所以这个入口主要给安装/手动修复用。
 """
 from __future__ import annotations
 
@@ -14,10 +15,12 @@ import common
 
 def main() -> None:
     store = common.open_store()
-    gains, volume_db, wet = common.defaults()
-    version = common.write_params(store, gains, volume_db, wet)
-    print("默认参数已写入: 全平直 / 总音量 %+.1f dB / 湿量 %.2f (版本 %d)"
-          % (volume_db, wet, version))
+    common.restore_params(store)        # 显式恢复一次(幂等)
+    gains, volume_db, wet, version = common.read_params(store)
+    source = "落盘文件" if common.load_saved_params() is not None else "默认值"
+    nonzero = sum(1 for x in gains if abs(x) > 1e-9)
+    print("参数已写入: 来源%s / 总音量 %+.1f dB / 湿量 %.2f / EQ 非零 %d 段 (版本 %d)"
+          % (source, volume_db, wet, nonzero, version))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ DSP 是**每声道一个进程**(pipe 插件按声道 fork, 两个进程命令�
 from __future__ import annotations
 
 import fcntl
+import json
 import mmap
 import os
 import struct
@@ -23,6 +24,12 @@ CHANNELS = 2
 EQ_PATH = "/dev/shm/collaplex-eq"
 LOCK_PATH = "/dev/shm/collaplex-eq.lock"
 LOUDNESS_SHM = "/dev/shm/collaplex-loudness"
+
+# 参数落盘位置: 面板每次改参数都会写这里, 共享内存不存在时(开机/重启后)自动恢复。
+# 没有它的话 /dev/shm 一清空参数就全归零 —— 听感上就是"混响突然没了"(湿量 0)。
+# 与响度归一化的状态文件 loudness.json 同目录。
+STATE_DIR = os.path.expanduser("~/.local/state/cinema-spatial")
+PARAMS_JSON = os.path.join(STATE_DIR, "params.json")
 
 GAIN_LIMIT = 15.0
 VOLUME_LIMIT = 12.0
@@ -48,15 +55,69 @@ STATE_OFF = _PARAMS.size + _VER.size
 SIZE = STATE_OFF + _STATE.size
 
 
+def load_saved_params() -> tuple[list[float], float, float] | None:
+    """读落盘的参数; 文件不存在或内容坏了都返回 None。"""
+    try:
+        with open(PARAMS_JSON, encoding="utf-8") as fh:
+            data = json.load(fh)
+        gains = [float(x) for x in data["eq"]]        # type: ignore[union-attr]
+        if len(gains) != EQ_BANDS:
+            return None
+        return (gains, float(data["volume_db"]), float(data["wet"]))  # type: ignore[arg-type]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def save_params(gains: list[float], volume_db: float, wet: float) -> None:
+    """把参数落盘(先写临时文件再改名, 避免别处读到半截)。值没变就不写。"""
+    old = load_saved_params()
+    if old is not None and old[0] == gains and old[1] == volume_db and old[2] == wet:
+        return
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        tmp = PARAMS_JSON + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"eq": gains, "volume_db": volume_db, "wet": wet}, fh)
+        os.replace(tmp, PARAMS_JSON)
+    except OSError:
+        pass        # 落盘失败不该影响听音(比如状态目录不可写), 静默降级
+
+
+def restore_params(store: mmap.mmap) -> None:
+    """把落盘的参数(没有则默认值)恢复进共享内存, 带上下限夹取。"""
+    saved = load_saved_params()
+    if saved is None:
+        gains, volume_db, wet = defaults()
+    else:
+        raw_gains, raw_vol, raw_wet = saved
+        gains = [max(-GAIN_LIMIT, min(GAIN_LIMIT, g)) for g in raw_gains]
+        volume_db = max(-VOLUME_LIMIT, min(VOLUME_LIMIT, raw_vol))
+        wet = max(0.0, min(WET_LIMIT, raw_wet))
+    write_params(store, gains, volume_db, wet)
+
+
 def open_store() -> mmap.mmap:
-    """打开(不存在则创建)共享内存映射。"""
+    """打开(不存在则创建)共享内存映射。
+
+    文件是**新创建**的时候(开机/重启后 /dev/shm 已清空)顺手把落盘的参数恢复进去 ——
+    否则参数全是 0, 听感上就是"混响没了、EQ 也没了"。恢复幂等, 两个声道进程同时判定
+    为"新建"也不要紧(写进去的值一样)。
+    """
+    created = True
+    try:
+        created = os.path.getsize(EQ_PATH) < SIZE
+    except OSError:
+        pass
     fd = os.open(EQ_PATH, os.O_RDWR | os.O_CREAT, 0o666)
     try:
         if os.fstat(fd).st_size < SIZE:
             os.ftruncate(fd, SIZE)
-        return mmap.mmap(fd, SIZE)
+        store = mmap.mmap(fd, SIZE)
     finally:
         os.close(fd)
+    if created:
+        restore_params(store)
+    return store
 
 
 def read_params(store: mmap.mmap) -> tuple[list[float], float, float, int]:

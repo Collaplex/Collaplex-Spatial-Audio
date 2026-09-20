@@ -57,6 +57,10 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-ra
 .presets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .presets button{padding:4px 11px;font-size:11px}
 .presets button.on{border-color:var(--ok);color:var(--ok);background:#12211a}
+.presets-title{font-size:10px;color:var(--dim);margin:10px 0 6px;letter-spacing:.5px}
+/* 场所预设 = EQ + 混响一起切, 用偏绿的边框跟普通 EQ 预设区分 */
+.presets.venues button{border-color:#2f4a38}
+.presets.venues button.on{border-color:var(--ok);color:var(--ok);background:#12211a}
 
 /* ---- EQ ---- */
 .eq{display:flex;align-items:flex-end;gap:3px;height:190px;padding-top:6px}
@@ -127,6 +131,8 @@ button:hover{border-color:var(--ok);color:var(--ok)}
 <div class="card">
   <h2>32 段 EQ（1/3 倍频程 · ±15 dB）</h2>
   <div class="presets" id="presets"></div>
+  <div class="presets-title">场所 · 一键切 EQ + 混响</div>
+  <div class="presets venues" id="venues"></div>
   <div class="eq" id="eq"></div>
   <div class="btns">
     <button id="flat">全部归零</button>
@@ -143,6 +149,10 @@ const post = async (path, body) => {
   return r.ok;
 };
 const say = (t) => { el("status").textContent = t; };
+/* applyVenue 提交湿量时会走 wet 的 change handler; 那个 handler 是 async 的,
+   它里面的 markVenue(null) 会在 applyVenue 点亮之后才跑, 把高亮又清掉。
+   所以在 dispatch 那一刻把意图记下来, handler 据此决定要不要清。 */
+let venueApplying = false;
 
 /* ---------- 滚轮捕获 ---------- */
 function bindWheel(input, onDelta, onDone) {
@@ -180,7 +190,12 @@ loud.addEventListener("input", () => el("loud-num").textContent = (+loud.value).
 wet.addEventListener("input", () => el("wet-num").textContent = (+wet.value).toFixed(2));
 vol.addEventListener("input", () => el("vol-num").textContent = (+vol.value >= 0 ? "+" : "") + (+vol.value).toFixed(1) + " dB");
 loud.addEventListener("change", async () => { await post("/api/loudness", {target_db:+loud.value}); say("归一化已生效"); });
-wet.addEventListener("change", async () => { await post("/api/wet", {wet:+wet.value}); say("湿度已生效"); });
+wet.addEventListener("change", async () => {
+  const fromVenue = venueApplying;          // dispatch 是同步的, 这里能读到 applyVenue 的意图
+  await post("/api/wet", {wet:+wet.value});
+  say("湿度已生效");
+  if (!fromVenue) markVenue(null);          // 只有手动改湿量才取消场所高亮
+});
 vol.addEventListener("change", async () => { await post("/api/volume", {db:+vol.value}); say("总音量已生效"); });
 bindWheel(loud, v => el("loud-num").textContent = v.toFixed(1) + " dB", () => loud.dispatchEvent(new Event("change")));
 bindWheel(wet, v => el("wet-num").textContent = v.toFixed(2), () => wet.dispatchEvent(new Event("change")));
@@ -218,6 +233,7 @@ function buildEq(freqs) {
       gains[i] = val;
       commitEq();
       markPreset(null);                       // 手动改过就不是任何预设了
+      markVenue(null);
     });
     bindWheel(input, (val) => { input.value = val; input.dispatchEvent(new Event("input")); });
     input.addEventListener("dblclick", () => { input.value = 0; input.dispatchEvent(new Event("input")); });
@@ -239,14 +255,21 @@ const PRESETS = {
   "高音": [[200, -1], [2000, 1], [6000, 4], [14000, 6]],
   "深夜": [[60, 4], [200, 3], [1000, 0], [4000, 1], [12000, 3]],   // 小音量等响度补偿
   "柔化": [[3000, -2], [6000, -4], [12000, -5], [16000, -3]],      // 削刺耳高频
+};
+
+/* ---------- 场所预设: 一键同时切 EQ + 混响湿量 ---------- */
+/* 影院和歌剧院最本质的差别是**混响时间**(0.4~0.8 s vs 1.4~1.8 s), 光切 EQ 不够,
+   所以连湿量一起切。EQ 依据见 README「EQ 预设的设计依据」。
+   总音量不在这里动 —— 那是个人听音响度, 不该被场所覆盖。 */
+const VENUES = {
   // 影院: 高频按 X-curve(ISO 2969 国际版, 2 kHz 以上约 -1.5 dB/oct; 北美 SMPTE 是 -3),
-  // 再叠一层银幕透声损失(4~10 kHz); 低频是影院 sub / LFE 通道的体感 -- 厚, 暗, 有力.
-  "电影院": [[25, 2.5], [60, 3], [150, 0.5], [400, -0.5], [1000, 0],
-             [2000, -0.5], [4000, -2], [8000, -3.5], [16000, -5], [25000, -5.5]],
+  // 再叠银幕透声损失(4~10 kHz); 低频是影院 sub / LFE 通道的体感 -- 厚, 暗, 有力.
+  "电影院": {wet: 0.35, eq: [[25, 2.5], [60, 3], [150, 0.5], [400, -0.5], [1000, 0],
+                             [2000, -0.5], [4000, -2], [8000, -3.5], [16000, -5], [25000, -5.5]]},
   // 歌剧院: 木质厅堂的温暖落在 150~400 Hz; 歌手不用麦, 全靠 2~5 kHz 的 presence 投射,
-  // 所以这里要抬不能削; 大空间的空气吸收只削极高频 -- 暖, 亮, 有细节, 没有 sub 轰鸣.
-  "歌剧院": [[30, -1], [80, 0.5], [160, 2], [300, 2], [700, 1], [1500, 0],
-             [3000, 1], [5000, 1], [9000, 0], [16000, -1.5], [25000, -2]],
+  // 所以这里要抬不能削; 极高频只随空气吸收缓降 -- 暖, 亮, 有细节.
+  "歌剧院": {wet: 0.78, eq: [[30, -1], [80, 0.5], [160, 2], [300, 2], [700, 1], [1500, 0],
+                             [3000, 1], [5000, 1], [9000, 0], [16000, -1.5], [25000, -2]]},
 };
 function curveTo(pts, freqs) {
   if (!pts.length) return freqs.map(() => 0);
@@ -264,10 +287,11 @@ function curveTo(pts, freqs) {
     return 0;
   });
 }
-function applyPreset(name) {
+/* 把一组控制点写进 32 段滑块并提交(EQ 预设与场所预设共用)。 */
+function applyEqPoints(pts) {
   const freqs = state ? state.freqs : [];
   if (!freqs.length) return;
-  const vals = curveTo(PRESETS[name], freqs).map((g) => Math.round(g * 2) / 2);   // 对齐 0.5 步进
+  const vals = curveTo(pts, freqs).map((g) => Math.round(g * 2) / 2);   // 对齐 0.5 步进
   gains = vals.slice();
   eqBox.querySelectorAll("input").forEach((inp, i) => {
     inp.value = vals[i];
@@ -275,16 +299,43 @@ function applyPreset(name) {
     v.textContent = vals[i] === 0 ? "" : (vals[i] > 0 ? "+" : "") + vals[i].toFixed(1);
   });
   commitEq();
-  markPreset(name);
-  say("EQ 预设: " + name);
 }
-/* 点了哪个预设要看得见(不然选没选中没反馈); 手动改滑块即取消高亮。 */
+/* 点了哪个按钮要看得见(不然选没选中没反馈); 手动改滑块即取消高亮。 */
 function markPreset(name) {
   const box = el("presets");
   if (!box) return;
   box.querySelectorAll("button").forEach((b) => {
     b.classList.toggle("on", name !== null && b.textContent === name);
   });
+}
+function markVenue(name) {
+  const box = el("venues");
+  if (!box) return;
+  box.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("on", name !== null && b.textContent === name);
+  });
+}
+function applyPreset(name) {
+  applyEqPoints(PRESETS[name]);
+  markVenue(null);
+  markPreset(name);
+  say("EQ 预设: " + name);
+}
+/* 场所: EQ + 混响湿量一起切。湿量走 change 事件提交(和手动拖推子同一条路),
+   那个 handler 里会 markVenue(null), 所以要在它之后才点亮本按钮。 */
+function applyVenue(name) {
+  const spec = VENUES[name];
+  if (!spec) return;
+  applyEqPoints(spec.eq);
+  wet.value = spec.wet;
+  el("wet-num").textContent = spec.wet.toFixed(2);
+  markBusy("wet", 1500);                     // 别让 SSE 轮询把刚设的湿量弹回旧值
+  venueApplying = true;
+  wet.dispatchEvent(new Event("change"));    // handler 在同步阶段就把意图读走了
+  venueApplying = false;
+  markPreset(null);
+  markVenue(name);
+  say("场所: " + name + " · 混响 " + spec.wet.toFixed(2) + " · EQ 已切");
 }
 function buildPresets() {
   const box = el("presets");
@@ -293,6 +344,18 @@ function buildPresets() {
     const b = document.createElement("button");
     b.textContent = name;
     b.addEventListener("click", () => applyPreset(name));
+    box.appendChild(b);
+  });
+}
+function buildVenues() {
+  const box = el("venues");
+  if (!box) return;
+  box.innerHTML = "";
+  Object.keys(VENUES).forEach((name) => {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.title = "同时切 EQ + 混响 " + VENUES[name].wet.toFixed(2);
+    b.addEventListener("click", () => applyVenue(name));
     box.appendChild(b);
   });
 }
@@ -359,6 +422,7 @@ es.onerror = () => say("面板与 DSP 失联, 重连中");
 function applyState(d) {
   if (state === null) {
     buildPresets();
+    buildVenues();
     buildEq(d.freqs);
     gains = d.gains.slice();
     eqBox.querySelectorAll("input").forEach((inp) => {
@@ -375,7 +439,7 @@ function applyState(d) {
   updateLoud(d.loudness_levels);
   state = d;
 }
-el("flat").addEventListener("click", () => { gains = new Array(32).fill(0); commitEq(); markPreset("平直"); buildEq(state ? state.freqs : []); });
+el("flat").addEventListener("click", () => { gains = new Array(32).fill(0); commitEq(); markPreset("平直"); markVenue(null); buildEq(state ? state.freqs : []); });
 el("reset").addEventListener("click", () => { state = null; fetch("/api/state").then(r => r.json()).then(applyState).catch(() => say("面板与 DSP 失联")); });
 fetch("/api/state").then(r => r.json()).then(applyState).catch(() => say("面板与 DSP 失联"));
 </script>

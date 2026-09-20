@@ -6,7 +6,7 @@
 #    所以参数全部写在这里, 配置里只给本脚本的路径。
 # ★ 本脚本路径必须**纯 ASCII**: pipe 插件给中文路径会一声不吭(节点照建、
 #    音频绕过、零日志)。脚本内部再去 exec 中文路径的 DSP 是没问题的。
-export LN_TARGET_DB=-16
+export LN_TARGET_DB=-12
 export LN_GATE_DB=-50
 export LN_MAX_BOOST=20
 export LN_MAX_CUT=20

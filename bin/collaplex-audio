@@ -42,7 +42,9 @@ stop)
     # 面板按相对路径起过(如 .venv/bin/python web/server.py), 只匹配绝对路径会漏, 用后段匹配
     for pid in $(pids "web/server.py"); do kill "$pid" 2>/dev/null || true; done
     rm -f /dev/shm/collaplex-eq /dev/shm/collaplex-loudness
-    rm -f /dev/shm/collaplex-eq.lock /dev/shm/collaplex-loudness.lock
+    # 锁文件是每声道一份: <名>.lock0 / <名>.lock1(common.py 按声道编号),
+    # 只删基名会留下残留 → 用通配
+    rm -f /dev/shm/collaplex-eq.lock* /dev/shm/collaplex-loudness.lock*
     systemctl --user restart pipewire pipewire-pulse wireplumber
     sleep 1
     echo "已停止。默认输出: $(wpctl inspect @DEFAULT_SINK@ 2>/dev/null | sed -n 's/.*node.description = //p' | head -1)"

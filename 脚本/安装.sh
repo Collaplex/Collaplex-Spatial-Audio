@@ -22,21 +22,48 @@ EQ_IN="collaplex_eq_in"
 PY="${PY:-$ROOT/.venv/bin/python}"
 [ -x "$PY" ] || PY=/usr/bin/python3
 
-# ---- 1. 探测数字输出 ----
-TARGET=$(pw-dump | /usr/bin/python3 -c '
-import json, sys
-for n in json.load(sys.stdin):
-    if n.get("type") != "PipeWire:Interface:Node":
-        continue
-    p = (n.get("info") or {}).get("props") or {}
-    if p.get("media.class") == "Audio/Sink":
-        nm = p.get("node.name") or ""
-        if "iec958" in nm or "digital" in nm.lower():
-            print(nm)
+# ---- 1. 探测输出设备 ----
+# 优先用**记住的选择**(面板按钮/上次 start 落盘的 output.json) —— 设备名跨重插是稳定的
+# (含 USB 序列号), 所以"现在不在位"也照样先按它建链, 设备一插上由面板守护自动挂上。
+# 没记忆过就照旧: 先找数字输出(iec958), 再退到任意硬件输出。
+TARGET_INFO=$(/usr/bin/python3 - "$ROOT/web" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+
+import output_route  # noqa: E402
+
+chosen = output_route.saved()
+sinks = output_route.hardware_sinks()
+desc_of = {d["name"]: d["description"] for d in sinks}
+target = chosen["node_name"]
+if not target:
+    for d in sinks:
+        if "iec958" in d["name"] or "digital" in d["name"].lower():
+            target = d["name"]
             break
-')
-[ -n "$TARGET" ] || { echo "找不到数字输出设备(iec958)"; exit 1; }
-echo "数字输出: $TARGET"
+    if not target and sinks:
+        target = sinks[0]["name"]
+if not target:
+    print("\t\t")
+    raise SystemExit
+desc = desc_of.get(target, "")
+output_route.save(target, desc)          # 落盘: 面板守护与下次 start 共用这一份选择
+present = any(d["name"] == target and d["present"] for d in sinks)
+print("%s\t%s\t%s" % (target, desc, "在位" if present else "不在位"))
+PY
+)
+TARGET=$(printf '%s' "$TARGET_INFO" | cut -f1)
+TARGET_DESC=$(printf '%s' "$TARGET_INFO" | cut -f2)
+TARGET_STATE=$(printf '%s' "$TARGET_INFO" | cut -f3)
+if [ -z "$TARGET" ]; then
+    echo "找不到任何输出设备, 也没有记住的选择 —— 先把耳机/声卡接上再 start"
+    exit 1
+fi
+echo "输出设备: $TARGET (${TARGET_DESC:-未知}) [$TARGET_STATE]"
+if [ "$TARGET_STATE" != "在位" ]; then
+    echo "  ★ 设备当前不在位: 链路先建好, 设备一出现由面板守护(output_route)自动挂上, 不用重启"
+fi
 
 # ---- 2. 部署 pipe 插件入口(必须 ASCII 路径) ----
 mkdir -p "$(dirname "$WRAPPER")"

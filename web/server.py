@@ -5,10 +5,12 @@
 页面:      /
 接口:
     GET  /api/state     参数 + DSP 双声道电平
+    GET  /api/devices   可选输出设备清单 + 当前挂载状态
     POST /api/eq        {"gains": [32 个数]}   每段 dB(±15)
     POST /api/volume    {"db": -12..12}        总音量
     POST /api/wet       {"wet": 0..1}          混响湿量
     POST /api/loudness  {"target_db": -30..-6, "on": bool}   响度归一化(DSP 每秒重读该 JSON)
+    POST /api/device    {"name": "alsa_output.xxx"}          输出设备(落盘 + 立刻挂载)
 """
 from __future__ import annotations
 
@@ -21,8 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "dsp"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import common  # noqa: E402
+import output_route  # noqa: E402
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8789
 FRAME_SEC = 0.016                # 面板推送间隔(约 60 Hz)
@@ -105,6 +109,7 @@ class Handler(BaseHTTPRequestHandler):
             "volume_limit": common.VOLUME_LIMIT,
             "levels": levels,
             "loudness": read_loudness(),
+            "output": output_route.status(),
         }
 
     def _stream(self) -> None:
@@ -144,6 +149,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/state":
             self._send_json(self._snapshot())
             return
+        if self.path == "/api/devices":
+            self._send_json(output_route.status())
+            return
         if self.path == "/api/stream":
             self._stream()
             return
@@ -175,6 +183,16 @@ class Handler(BaseHTTPRequestHandler):
                 write_loudness({"target_db": target, "on": bool(on)})
                 self._send_json({"ok": True, "loudness": read_loudness()})
                 return
+            elif self.path == "/api/device":
+                name = str(data.get("name", ""))
+                known = {str(d["name"]): str(d["description"])
+                         for d in output_route.hardware_sinks()}
+                if name not in known:
+                    self._send_json({"ok": False, "error": "未知的输出设备: %s" % name}, 400)
+                    return
+                ok, msg = output_route.select(name, known[name])
+                self._send_json({"ok": ok, "message": msg, "output": output_route.status()})
+                return
             else:
                 self.send_error(404)
                 return
@@ -189,7 +207,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print("Collaplex 音效面板: http://127.0.0.1:%d" % PORT, flush=True)
+    # ★ 输出设备守护: 设备晚到(USB 耳机开机后才枚举)时自动把链路末段挂上去,
+    #   否则末段会停在错的设备/不连, 听感就是"双重混响", 只能手动 stop + start。
+    output_route.start_watcher()
+    print("Collaplex 音效面板: http://127.0.0.1:%d (输出设备守护已启动)" % PORT, flush=True)
     server.serve_forever()
 
 

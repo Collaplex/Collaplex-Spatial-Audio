@@ -80,6 +80,9 @@ input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-ra
 button{background:var(--card-hi);color:var(--fg);border:1px solid var(--bd-hi);border-radius:6px;
        padding:5px 12px;font:inherit;font-size:11px;cursor:pointer}
 button:hover{border-color:var(--ok);color:var(--ok)}
+select{background:var(--card-hi);color:var(--fg);border:1px solid var(--bd-hi);border-radius:6px;
+       padding:5px 8px;font:inherit;font-size:11px;flex:1;min-width:0;cursor:pointer}
+select:hover{border-color:var(--ok)}
 </style>
 </head>
 <body>
@@ -126,6 +129,17 @@ button:hover{border-color:var(--ok);color:var(--ok)}
     <input type="range" id="vol" min="-12" max="12" step="0.5">
     <span class="num" id="vol-num">—</span>
   </div>
+</div>
+
+<div class="card">
+  <h2>输出设备</h2>
+  <div class="row">
+    <span class="name">输出到</span>
+    <select id="outdev"></select>
+    <button id="outapply">应用</button>
+    <span class="num" id="outstate">—</span>
+  </div>
+  <div class="hint" id="outhint">换设备: 选一下再点「应用」。开机时设备晚到(USB 耳机常见)会由守护自动挂上, 不用重启链路。</div>
 </div>
 
 <div class="card">
@@ -437,8 +451,45 @@ function applyState(d) {
   if (!isBusy("loud") && d.loudness) { loud.value = d.loudness.target_db; el("loud-num").textContent = (+d.loudness.target_db).toFixed(1) + " dB"; }
   updateMeters(d.levels);
   updateLoud(d.loudness_levels);
+  updateOutput(d.output);
   state = d;
 }
+
+/* ---------- 输出设备 ---------- */
+/* 设备表只在变化时重建选项: SSE 是 60 Hz, 每帧重建 <select> 会把正在点的下拉打断。 */
+let outSig = "";
+function updateOutput(o) {
+  if (!o) return;
+  const sel = el("outdev");
+  const devs = o.devices || [];
+  const sig = JSON.stringify(devs.map((d) => [d.name, d.present]));
+  if (sig !== outSig) {
+    outSig = sig;
+    const keep = sel.dataset.touched ? sel.value : (o.device || "");
+    sel.innerHTML = "";
+    for (const d of devs) {
+      const op = document.createElement("option");
+      op.value = d.name;
+      op.textContent = (d.description || d.name) + (d.present ? "" : "（不在位）");
+      sel.appendChild(op);
+    }
+    if (keep) sel.value = keep;
+  }
+  if (!sel.dataset.touched && o.device) sel.value = o.device;
+  el("outstate").textContent = (o.routed && o.routed === o.device) ? "已挂载" : (o.routed ? "挂在别处" : "未挂载");
+  el("outhint").textContent = o.note || "";
+}
+el("outdev").addEventListener("change", () => { el("outdev").dataset.touched = "1"; });
+el("outapply").addEventListener("click", async () => {
+  const name = el("outdev").value;
+  if (!name) return;
+  const r = await fetch("/api/device", {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name})});
+  const d = await r.json().catch(() => ({}));
+  say(d.ok ? ("输出设备: " + (d.message || name)) : ("切换失败: " + (d.error || "未知错误")));
+  el("outdev").dataset.touched = "";
+  if (d.output) updateOutput(d.output);
+});
 el("flat").addEventListener("click", () => { gains = new Array(32).fill(0); commitEq(); markPreset("平直"); markVenue(null); buildEq(state ? state.freqs : []); });
 el("reset").addEventListener("click", () => { state = null; fetch("/api/state").then(r => r.json()).then(applyState).catch(() => say("面板与 DSP 失联")); });
 fetch("/api/state").then(r => r.json()).then(applyState).catch(() => say("面板与 DSP 失联"));

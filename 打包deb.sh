@@ -22,7 +22,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/usr/share/collaplex-audio" "$STAGE/usr/bin"
 
 # ---- 源码 ----
-for d in dsp bin pipewire web hrir reverb 脚本 systemd; do
+for d in dsp bin pipewire web hrir reverb 脚本 systemd doc; do
     cp -a "$ROOT/$d" "$STAGE/usr/share/collaplex-audio/"
 done
 cp "$ROOT/README.md" "$STAGE/usr/share/collaplex-audio/"

@@ -1,8 +1,8 @@
 #!/bin/bash
 # 把 collaplex-audio 打成 deb 包(纯脚本 + 数据, Architecture: all)
 #
-#   bash 打包deb.sh              默认版本 1.0.0
-#   VER=1.0.1 bash 打包deb.sh    指定版本
+#   bash 打包deb.sh              默认读 VERSION 文件
+#   VER=1.0.3 bash 打包deb.sh    临时指定版本(不写回 VERSION)
 #
 # 产物: 发布/collaplex-audio_<版本>_all.deb
 #
@@ -12,7 +12,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-VER="${VER:-1.0.0}"
+VER="${VER:-$(tr -d " \t\n" < "$ROOT/VERSION")}"
 OUT="$ROOT/发布"
 PKG="collaplex-audio_${VER}_all"
 STAGE="$OUT/$PKG"

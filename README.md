@@ -86,8 +86,6 @@ collaplex-audio stop
 
 ## 控制面板
 
-![控制面板](doc/panel.png)
-
 打开方式：`collaplex-audio web` → http://127.0.0.1:8789
 
 | 区域 | 内容 |

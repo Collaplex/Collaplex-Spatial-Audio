@@ -1,7 +1,9 @@
-# Collaplex 音效
+# Collaplex Spatial Audio
 
-**把 Linux 的系统输出接成一条耳机空间音效链。**
+**Collaplex 音效 —— 把 Linux 的系统输出接成一条耳机空间音效链。**
 Spatial audio for headphones on Linux — a PipeWire chain driven by in-house DSP.
+
+包名与命令名：`collaplex-audio`。
 
 `Linux` · `PipeWire` · `全链 96 kHz` · `本地控制面板` · `AGPL-3.0-or-later`
 

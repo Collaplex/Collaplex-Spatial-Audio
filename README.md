@@ -7,6 +7,8 @@ Spatial audio for headphones on Linux — a PipeWire chain driven by in-house DS
 
 `Linux` · `PipeWire` · `全链 96 kHz` · `本地控制面板` · `AGPL-3.0-or-later`
 
+**中文** · [English](README.en.md)
+
 ![控制面板](doc/panel.png)
 
 ## 概述

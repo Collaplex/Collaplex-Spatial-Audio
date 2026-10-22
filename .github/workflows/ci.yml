@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: Shell 检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: bash 语法
+        run: |
+          for f in bin/collaplex-* 打包deb.sh 脚本/*.sh; do
+            bash -n "$f" || exit 1
+          done
+      - name: shellcheck（warning 及以上必须为 0）
+        run: shellcheck -S warning bin/collaplex-audio bin/collaplex-eq bin/collaplex-loudness-norm bin/collaplex-wet 打包deb.sh 脚本/*.sh
+
+  python:
+    name: Python 类型检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 建 venv（pyright 靠它解析 numpy/scipy）
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q --upgrade pip
+          .venv/bin/pip install -q numpy scipy
+      - name: 语法编译
+        run: python -m compileall -q dsp web
+      - name: pyright（strict，必须 0 errors）
+        run: |
+          npm install -g pyright
+          pyright --project pyrightconfig.json
+
+  deb:
+    name: 构建 deb
+    needs: [shell, python]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 打包
+        run: bash 打包deb.sh
+      - name: 校验包内容
+        run: |
+          ls -lh 发布/*.deb
+          dpkg-deb -c 发布/*.deb | grep -q "usr/share/collaplex-audio/LICENSE"
+          dpkg-deb -c 发布/*.deb | grep -q "usr/share/collaplex-audio/doc/panel.png"
+          dpkg-deb -c 发布/*.deb | grep -q "usr/share/doc/collaplex-audio/copyright"
+          dpkg-deb -f 发布/*.deb Package Version Depends
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collaplex-audio-deb
+          path: 发布/*.deb
+          if-no-files-found: error

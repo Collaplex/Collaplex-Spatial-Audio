@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 # Collaplex 32 段 EQ + 总音量 + 房间混响 —— pipe 插件入口
 #
 # pipe 插件的 command 只支持「程序 + 一个参数」, 所以参数全写在这里;

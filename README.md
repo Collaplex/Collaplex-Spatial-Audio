@@ -464,6 +464,14 @@ uv run --with websocket-client python 测试/cdp_拖动验证.py    # CDP 真鼠
 | `test_echo.py` | 脉冲测回声(主峰后包络: 有没有孤立峰) |
 | `cdp_拖动验证.py` / `cdp_预设验证.py` | 前端真点击/真拖动(不看 DOM, 看实际写入) |
 
+## 许可
+
+**双授权**（见 [LICENSING.md](LICENSING.md)）：
+
+- 开源：**AGPL-3.0-or-later**，允许商用；但分发衍生作品或以网络服务形式提供时，必须以同一许可开放对应完整源码。
+- 商业：闭源集成、预装 / OEM 分发、定制开发需购买商业授权，联系仓库所有者。
+- 第三方素材：`hrir/` 的 SADIE II 数据为 **Apache-2.0**（University of York），允许商用；其余依赖按各自许可。
+
 ## 文件
 
 | 路径 | 作用 |

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 """32 段 EQ + 总音量 —— pipe 插件载荷(单声道块进, 单声道块出)。
 
 参数实时来自共享内存(dsp/common.py): 32 段增益(dB) + 总音量(dB)。

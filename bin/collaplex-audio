@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 # Collaplex 音效 —— 主命令(日常三个动作)
 #
 #   collaplex-audio start   启动: 接管系统音频(全局输出走这条链)

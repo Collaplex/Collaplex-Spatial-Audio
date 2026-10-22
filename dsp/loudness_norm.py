@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 """Collaplex 响度归一化器 — PipeWire filter-chain `pipe` 插件载荷
 
 ★ 运行环境: 由 filter-chain 的 pipe 插件 fork, stdin=音频进, stdout=音频出。

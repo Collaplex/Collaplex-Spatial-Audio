@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 """Collaplex 效果 DSP 公共部分: 前端 <-> DSP 的共享内存协议。
 
 前端(web/server.py) 与 DSP 进程(filter-chain 的 pipe 插件载荷)通过这一块共享内存通信:

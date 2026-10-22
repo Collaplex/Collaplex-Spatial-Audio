@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 """混响湿量增益级 —— pipe 插件载荷(单声道块进, 单声道块出)。
 
 只做一件事: 把湿信号乘以共享内存里的湿量(0~1), 逐样本平滑过渡。

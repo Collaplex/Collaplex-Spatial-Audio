@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 """输出设备路由 + 自动挂载守护(纯标准库, 只依赖 pw-dump / pw-link)。
 
 为什么需要它

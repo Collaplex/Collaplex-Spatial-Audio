@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 # Collaplex 混响湿量增益级 —— pipe 插件入口
 export CX_RATE=96000
 exec "__PY__" "__DSP__"

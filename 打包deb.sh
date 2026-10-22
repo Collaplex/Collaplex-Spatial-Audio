@@ -26,10 +26,32 @@ for d in dsp bin pipewire web hrir reverb 脚本 systemd; do
     cp -a "$ROOT/$d" "$STAGE/usr/share/collaplex-audio/"
 done
 cp "$ROOT/README.md" "$STAGE/usr/share/collaplex-audio/"
+cp "$ROOT/LICENSE" "$ROOT/LICENSING.md" "$STAGE/usr/share/collaplex-audio/"
 # 备份文件不入包(IR 的 .orig / .pre-eq 备份只留在源码树里)
 find "$STAGE" \( -name "*.orig.wav" -o -name "*.pre-eq.wav" \) -delete
 find "$STAGE/usr/share" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
 chmod -R a+rX "$STAGE/usr/share"
+
+# ---- 版权文件(deb 合规) ----
+DOC="$STAGE/usr/share/doc/collaplex-audio"
+mkdir -p "$DOC"
+cat > "$DOC/copyright" <<'EOF'
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: collaplex-audio
+Source: https://collaplex.me/git/edgevoid/collaplex-audio
+
+Files: *
+Copyright: 2026 Collaplex
+License: AGPL-3.0-or-later
+ 源码以 AGPL-3.0-or-later 发布, 全文见 /usr/share/collaplex-audio/LICENSE 。
+ 闭源商用需商业授权, 见 /usr/share/collaplex-audio/LICENSING.md 。
+
+Files: hrir/*
+Copyright: AudioLab, University of York
+License: Apache-2.0
+ SADIE II 数据集 (受试者 H4), 允许商用, 保留其版权与许可声明。
+ https://www.york.ac.uk/sadie-project/
+EOF
 
 # ---- 主命令 ----
 install -m 755 "$ROOT/bin/collaplex-audio" "$STAGE/usr/bin/collaplex-audio"

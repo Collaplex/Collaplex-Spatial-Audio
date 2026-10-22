@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Collaplex
 """Collaplex 音效控制面板 —— 本地服务(纯标准库, 无第三方依赖)。
 
     python3 web/server.py [端口]        默认 8789

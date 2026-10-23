@@ -5,6 +5,9 @@ Spatial audio for headphones on Linux — a PipeWire chain driven by in-house DS
 
 包名与命令名：`collaplex-audio`。
 
+![CI](https://github.com/Collaplex/Collaplex-Spatial-Audio/actions/workflows/ci.yml/badge.svg) ![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)
+
+
 `Linux` · `PipeWire` · `全链 96 kHz` · `本地控制面板` · `AGPL-3.0-or-later`
 
 **中文** · [English](README.en.md)

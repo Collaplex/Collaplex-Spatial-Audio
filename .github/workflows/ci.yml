@@ -25,8 +25,8 @@ jobs:
 
       - name: Shell 语法与静态检查
         run: |
-          for f in bin/collaplex-* 打包deb.sh 脚本/*.sh; do bash -n "$f" || exit 1; done
-          shellcheck -S warning bin/collaplex-audio bin/collaplex-eq bin/collaplex-loudness-norm bin/collaplex-wet 打包deb.sh 脚本/*.sh
+          for f in bin/collaplex-* build-deb.sh scripts/*.sh; do bash -n "$f" || exit 1; done
+          shellcheck -S warning bin/collaplex-audio bin/collaplex-eq bin/collaplex-loudness-norm bin/collaplex-wet build-deb.sh scripts/*.sh
 
       - name: 建 venv（pyright 靠它解析 numpy/scipy）
         run: |
@@ -43,19 +43,19 @@ jobs:
           pyright --project pyrightconfig.json
 
       - name: 构建 deb
-        run: bash 打包deb.sh
+        run: bash build-deb.sh
 
       - name: 校验包内容与版本
         run: |
-          ls -lh 发布/*.deb
-          dpkg-deb -c 发布/*.deb | grep -q "usr/share/collaplex-audio/LICENSE"
-          dpkg-deb -c 发布/*.deb | grep -q "usr/share/collaplex-audio/doc/panel.png"
-          dpkg-deb -c 发布/*.deb | grep -q "usr/share/doc/collaplex-audio/copyright"
-          dpkg-deb -f 发布/*.deb Package Version Depends
-          test "$(dpkg-deb -f 发布/*.deb Version)" = "$(tr -d ' \n' < VERSION)"
+          ls -lh dist/*.deb
+          dpkg-deb -c dist/*.deb | grep -q "usr/share/collaplex-audio/LICENSE"
+          dpkg-deb -c dist/*.deb | grep -q "usr/share/collaplex-audio/doc/panel.png"
+          dpkg-deb -c dist/*.deb | grep -q "usr/share/doc/collaplex-audio/copyright"
+          dpkg-deb -f dist/*.deb Package Version Depends
+          test "$(dpkg-deb -f dist/*.deb Version)" = "$(tr -d ' \n' < VERSION)"
 
       - uses: actions/upload-artifact@v4
         with:
           name: collaplex-audio-deb
-          path: 发布/*.deb
+          path: dist/*.deb
           if-no-files-found: error

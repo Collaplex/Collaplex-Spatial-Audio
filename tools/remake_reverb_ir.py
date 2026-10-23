@@ -18,7 +18,7 @@
 
 自检: 跑完 `np.argmax(np.abs(ir[:,0])) / rate * 1000` 必须 < 2 ms。
 
-产出 reverb/房间混响IR-96k.wav(原文件备份为 .orig.wav), 并打印标定用的增益。
+产出 reverb/room-ir-96k.wav(原文件备份为 .orig.wav), 并打印标定用的增益。
 """
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ from pathlib import Path
 import numpy as np
 from scipy.io import wavfile
 
-IR = Path("reverb/房间混响IR-96k.wav")
-BAK = Path("reverb/房间混响IR-96k.orig.wav")
+IR = Path("reverb/room-ir-96k.wav")
+BAK = Path("reverb/room-ir-96k.orig.wav")
 LEAD_MS = 0.5          # 主峰前保留的余量: 湿声必须与零延迟干声对齐, 否则就是回声
 FADE_MS = 0.5          # 渐入必须 ≤ LEAD_MS(否则主峰被窗压掉, argmax 会漂到后面的反射上)
 TARGET_PEAK = 0.0975   # 与 2026-10-21 实听版本同量级, conf 里 gain=0.61 保持不变

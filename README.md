@@ -65,7 +65,7 @@ collaplex-audio start          # 装完不会自动接管，必须执行这一�
 ```sh
 git clone https://collaplex.me/git/edgevoid/collaplex-audio.git
 cd collaplex-audio
-collaplex-audio start          # 等价于 bash 脚本/安装.sh
+collaplex-audio start          # 等价于 bash scripts/install.sh
 ```
 
 ## 使用
@@ -76,7 +76,7 @@ collaplex-audio stop     # 停止：恢复系统默认输出，同时关掉面�
 collaplex-audio web      # 打开控制面板（http://127.0.0.1:8789）
 ```
 
-- `WET=0.4 bash 脚本/安装.sh`：指定初始湿量（默认 0.3）
+- `WET=0.4 bash scripts/install.sh`：指定初始湿量（默认 0.3）
 - `WEB_PORT=8899 collaplex-audio web`：换面板端口
 
 **开机自启**：链路本身不需要服务——4 份配置部署在 `~/.config/pipewire/pipewire.conf.d/`，PipeWire 启动即加载，`start` 跑过一次就长期有效。面板用 systemd 用户服务 `collaplex-audio-panel.service` 登录自启，`start` 时自动安装并 enable。要取消：
@@ -118,7 +118,7 @@ collaplex-audio stop
 
 ## 实测
 
-所有指标都由 `测试/` 下的脚本对真实链路测得，不是设计目标值：
+所有指标都由 `tests/` 下的脚本对真实链路测得，不是设计目标值：
 
 | 指标 | 实测 |
 |---|---|
@@ -141,7 +141,7 @@ collaplex-audio stop
 | 整链峰值因子 | 2.0 dB | **12.2 dB** |
 | 软限幅介入样本 | 50.49% | **0.00%** |
 
-诊断与修复过程见 [doc/设计说明.md](doc/设计说明.md)。
+诊断与修复过程见 [doc/DESIGN.md](doc/DESIGN.md)。
 
 ## 与商业虚拟器的差别
 
@@ -167,11 +167,11 @@ collaplex-audio stop
 
 ```sh
 uvx pyright --project pyrightconfig.json                        # 类型检查（要求 0 errors）
-bash 打包deb.sh                                                  # 出 deb 到 发布/
-uv run --with websocket-client python 测试/cdp_拖动验证.py        # CDP 真鼠标验证
+bash build-deb.sh                                                  # 出 deb 到 dist/
+uv run --with websocket-client python tests/cdp_drag_check.py        # CDP 真鼠标验证
 ```
 
-实现细节、踩过的坑、逐项诊断数据：[doc/设计说明.md](doc/设计说明.md)。
+实现细节、踩过的坑、逐项诊断数据：[doc/DESIGN.md](doc/DESIGN.md)。
 
 ## 许可
 

@@ -1,4 +1,4 @@
-"""链路包络示波器: 直接读 DSP 共享内存, 拿"响度后(vsink_out)"与"EQ后(最终)"两处的包络。
+"""链路envelope_scope: 直接读 DSP 共享内存, 拿"响度后(vsink_out)"与"EQ后(最终)"两处的包络。
 
 ★ 为什么这么做: 这台机器没有 ALSA sink 的 .monitor 节点, 手动把链路输出 link 进录音流
   会让录音流写 NaN(实测), 所以改用链路**自己**的电平表当示波器 —— DSP 每块(1024 样本
@@ -9,7 +9,7 @@
   正常混响   -> 尖峰后**单调**衰减的尾巴
   ★双重混响 -> 尾巴里出现第二个驼峰 / 第二段衰减, 或 20~200 ms 处有远高于邻域的孤立峰
 
-用法: python3 包络示波器.py [标签]
+用法: python3 envelope_scope.py [标签]
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import numpy as np
 
 EQ_SHM = "/dev/shm/collaplex-eq"
 LOUD_SHM = "/dev/shm/collaplex-loudness"
-IMPULSE = Path.home() / "桌面/工作区/实验/collaplex音效/测试/取证/脉冲.wav"
+IMPULSE = Path.home() / "桌面/工作区/实验/collaplex音效/tests/取证/脉冲.wav"
 LABEL = sys.argv[1] if len(sys.argv) > 1 else "now"
 POLL_S = 0.002          # 轮询间隔 2 ms(远快于 10.7 ms 的块率)
 RUN_S = 6.0

@@ -1,6 +1,6 @@
 """链路监控: 每秒采样各级电平与进程数, 抓"刷视频后没声音"的现场。
 
-    .venv/bin/python 测试/监控链路.py [秒数, 默认 900]
+    .venv/bin/python tests/monitor_chain.py [秒数, 默认 900]
 
 输出一行一次采样, 同时追加到 /tmp/链路监控.log。
 

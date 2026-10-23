@@ -1,10 +1,10 @@
 """给 IR 做频响校正 —— HRIR 漫反射场均衡 / 房间 IR 低频校平。
 
 用法:
-    python 工具/均衡IR.py 分析     只看曲线, 不写文件
-    python 工具/均衡IR.py hrir     给 12 条 HRIR 做均衡(备份 .orig.wav)
-    python 工具/均衡IR.py reverb   给房间 IR 做低频校平(备份 .orig.wav)
-    python 工具/均衡IR.py 全部
+    python tools/eq_ir.py 分析     只看曲线, 不写文件
+    python tools/eq_ir.py hrir     给 12 条 HRIR 做均衡(备份 .orig.wav)
+    python tools/eq_ir.py reverb   给房间 IR 做低频校平(备份 .orig.wav)
+    python tools/eq_ir.py 全部
 
 为什么用 biquad 而不是频域均衡:
   低频搁架需要很长的 FIR 才能表达(42ms 的 FIR 只有 23Hz 分辨率), 而 IIR 搁架几个
@@ -33,9 +33,9 @@ warnings.filterwarnings("ignore")
 RATE = 96000
 PROJ = "/home/lou/桌面/工作区/实验/collaplex音效"
 HRIR_DIR = os.path.join(PROJ, "hrir")
-REVERB = os.path.join(PROJ, "reverb", "房间混响IR-96k.wav")
+REVERB = os.path.join(PROJ, "reverb", "room-ir-96k.wav")
 
-# 校正参数(由 工具/分析均衡曲线.py 的曲线量出来)
+# 校正参数(由 tools/analyze_eq_curve.py 的曲线量出来)
 HRIR_SHELF = (500.0, -7.2, 0.707)        # freq, gain_dB, Q  —— 整族 HRIR 共用同一条,
 #                                          方向线索(ILD/ITD)因此不受影响
 REVERB_SHELF = (300.0, -21.0, 0.70)      # 房间 IR 低频比中频高 24.5 dB, 压到约 +5 dB,
@@ -106,7 +106,7 @@ def process(path: str, shelf: tuple[float, float, float], label: str,
     if write:
         # ★ 用独立的备份名。reverb 的 `.orig.wav` 是"剪直达声之前"的版本(那一步建的),
         #   这里存的是"频响校正之前"的版本, 两者不能混用同一个名字 —— 否则重跑一步
-        #   会把另一步的基线覆盖掉。重跑顺序: 先 重做混响IR.py, 再 均衡IR.py。
+        #   会把另一步的基线覆盖掉。重跑顺序: 先 remake_reverb_ir.py, 再 eq_ir.py。
         bak = path + ".pre-eq.wav"
         if not os.path.exists(bak):
             shutil.copy2(path, bak)

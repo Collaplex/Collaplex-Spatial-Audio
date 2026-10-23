@@ -69,7 +69,7 @@ fi
 mkdir -p "$(dirname "$WRAPPER")"
 sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/loudness_norm.py|" "$ROOT/bin/collaplex-loudness-norm" > "$WRAPPER"
 sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/eq.py|" \
-    -e "s|__REVERB__|$ROOT/reverb/房间混响IR-96k.wav|" \
+    -e "s|__REVERB__|$ROOT/reverb/room-ir-96k.wav|" \
     "$ROOT/bin/collaplex-eq" > "$HOME/.local/bin/collaplex-eq"
 chmod 755 "$WRAPPER" "$HOME/.local/bin/collaplex-eq"
 echo "已装入口: $WRAPPER / $HOME/.local/bin/collaplex-eq"
@@ -78,7 +78,7 @@ echo "已装入口: $WRAPPER / $HOME/.local/bin/collaplex-eq"
 mkdir -p "$CONF_DIR"
 sed -e "s|__WRAPPER__|$WRAPPER|" -e "s|__HRTF_IN__|$HRTF_IN|" \
     "$ROOT/pipewire/10-collaplex-vsink.conf" > "$CONF_DIR/10-collaplex-vsink.conf"
-sed -e "s|__HRIR__|$ROOT/hrir|" -e "s|__REVERB__|$ROOT/reverb/房间混响IR-96k.wav|" \
+sed -e "s|__HRIR__|$ROOT/hrir|" -e "s|__REVERB__|$ROOT/reverb/room-ir-96k.wav|" \
     -e "s|__EQ_IN__|$EQ_IN|" -e "s|__WET__|$WET|" -e "s|__WET_WRAPPER__|$HOME/.local/bin/collaplex-wet|" \
     "$ROOT/pipewire/20-collaplex-hrtf.conf" > "$CONF_DIR/20-collaplex-hrtf.conf"
 sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/wet_gain.py|" \
@@ -89,7 +89,7 @@ sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__WET_WRAPPER__|$
 cp "$ROOT/pipewire/91-collaplex-clock.conf" "$CONF_DIR/91-clock.conf"
 # 共享内存不存在时写入默认参数(全平直 / 0 dB / 湿量 0.3); 已存在则保留用户当前设置
 if [ ! -f /dev/shm/collaplex-eq ]; then
-    "$PY" "$ROOT/dsp/初始化.py"
+    "$PY" "$ROOT/dsp/bootstrap.py"
 fi
 echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿量 $WET) / 30-collaplex-eq.conf"
 

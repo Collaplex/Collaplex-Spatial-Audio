@@ -13,8 +13,8 @@
   +68  u32  rate      采样率
 
 用法:
-  python3 read_state.py            打印一次
-  python3 read_state.py --watch    每 0.5 秒刷新(诊断动态平衡过程)
+  python3 state.py            打印一次
+  python3 state.py --watch    每 0.5 秒刷新(诊断动态平衡过程)
 """
 import json
 import math

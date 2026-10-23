@@ -36,7 +36,7 @@
   房间 IR 未归一化(频响在 100~200 Hz 高 20 dB), 所以要标定成 `gain = 0.126`。
 - **`param_eq` 端口名带编号**(`In 1` / `Out 1`), 写成 `:In` 会让**整张图加载失败**, 模块静默降级成直通。
 - **峰值相关的失真, 纯音测不出来** —— 纯音峰值因子仅 3 dB, 音乐是 10~14 dB。
-  必须用高峰值因子素材测, 见 `测试/test_limit.py`。
+  必须用高峰值因子素材测, 见 `tests/test_limit.py`。
 - **改完 `watchdog` / 常驻脚本要重启巡检** —— 旧定义还在内存里按旧参数拉服务。
 - **按命令行找进程要按"后段"匹配** —— 面板若用相对路径起过(`.venv/bin/python web/server.py`),
   只匹配绝对路径会漏杀 → 端口被占、新服务起不来。写 `*web/server.py*` 这种够特异的后段。
@@ -47,11 +47,11 @@
   直达声**同量级**(30 ms 处 0 dB、40 ms 处 −1.6 dB)。干声(HRTF)是零延迟的, 两路一相加
   就成了"湿声晚 30 ms 还很响" = 明显的回声。
   **脉冲取证**: 主峰后 120 ms 处一个 −26 dBFS 孤立峰(比周围高 12 dB); 湿量设 0 则完全没有。
-  **修法**(`工具/重做混响IR.py`, 原文件备份为 `.orig.wav`): 裁掉前 22 ms 纯静音 →
+  **修法**(`tools/remake_reverb_ir.py`, 原文件备份为 `.orig.wav`): 裁掉前 22 ms 纯静音 →
   前 55 ms 余弦渐入(直达声段 0 → −23.6 dB) → 只留混响尾; 再把 **`gain` 重标** 0.126 → 0.4
   (剪掉直达声后湿声整体掉 ~19 dB, 不补就是"回声没了、混响也没了")。
 - **房间 IR 必须保持双声道, 并在 conf 里用 `channel` 分别取左右** —— 2026-09-19 版
-  `工具/重做混响IR.py` 里写了 `x = x[:, 0]`, 把立体声 IR 的右声道直接丢掉, 写出去的 IR
+  `tools/remake_reverb_ir.py` 里写了 `x = x[:, 0]`, 把立体声 IR 的右声道直接丢掉, 写出去的 IR
   成了单声道; 而 20-conf 里 `revL` / `revR` 读的是同一个文件 —— 两路湿声完全同源,
   混响糊在正中央、没有宽度(原 IR 本身是**双声道真立体声**, 左右相关 0.884)。
   **修法**: 处理时逐声道做、双声道写回; conf 里 `revL` 用 `channel = 0`、`revR` 用 `channel = 1`。
@@ -76,7 +76,7 @@
 ## IR 校正(2026-09-20)
 
 两处校正都改**文件**、不改 conf(数据干净、conf 简洁、任何用到这些 IR 的地方都受益),
-工具 `工具/均衡IR.py` 可重跑, 原文件一律备份为 `.orig.wav`。曲线由 `工具/分析均衡曲线.py`
+工具 `tools/eq_ir.py` 可重跑, 原文件一律备份为 `.orig.wav`。曲线由 `tools/analyze_eq_curve.py`
 量出来。都用一个**共用的** lowshelf, 所以 HRTF 的方向线索(ILD/ITD)不受影响。
 
 | 对象 | 问题 | 校正 | 效果 |
@@ -186,7 +186,7 @@
 | 机制 | 说明 |
 |---|---|
 | **面板按钮** | 「输出设备」卡片: 下拉选硬件输出 + 「应用」→ 立刻重挂 + 落盘 |
-| **选择落盘** | `~/.local/state/cinema-spatial/output.json`: `{"node_name": "...", "description": "..."}`; `脚本/安装.sh` 优先用它, 不再"猜第一个数字输出" |
+| **选择落盘** | `~/.local/state/cinema-spatial/output.json`: `{"node_name": "...", "description": "..."}`; `scripts/install.sh` 优先用它, 不再"猜第一个数字输出" |
 | **自动挂载守护** | 面板进程里的守护线程(`web/output_route.py`), 每 3 秒核对"选中的设备在位 且 `collaplex_eq_out` **只**连到它"; 不对就拆掉错的、补上对的 —— **设备一插上就自动挂上, 不用重启链路** |
 
 **为什么设备名可以记住、挂载不能写死**: ALSA 节点名带 USB 序列号
@@ -252,9 +252,9 @@
      后算出来的是窗函数的谱(表现为一条 +130 dB 的假斜线)。用矩形窗 + 尾部线性渐出。
   2. **别用粉噪做比值谱求传递函数** —— 随机信号 + 链路延迟 = 相位抵消, 会得到 −179 dB 的
      假深谷、以及一堆假的"窄峰"。确定性信号(扫频)才能拿真频响。
-- 取证脚本: `测试/扫频测频响.py`(扫频 + Farina 反卷积)、`测试/电平与失真诊断.py`
-  (只改电平的对照实验)、`测试/验证混响声道.py`(混响声道配置检查)、
-  `测试/诊断低频沙沙.py`(逐级旁路, 注: 其频响口径受电平影响, 已由前两个脚本取代)。
+- 取证脚本: `tests/sweep_freq_response.py`(扫频 + Farina 反卷积)、`tests/level_distortion_diag.py`
+  (只改电平的对照实验)、`tests/check_reverb_channels.py`(混响声道配置检查)、
+  `tests/diagnose_lowfreq_noise.py`(逐级旁路, 注: 其频响口径受电平影响, 已由前两个脚本取代)。
 
 ### 修复后复测(同素材同脚本)
 
@@ -340,8 +340,8 @@
 | `dsp/loudness_norm.py` | 响度归一化 DSP |
 | `dsp/eq.py` | 32 段 EQ + 总音量 + 软限幅 DSP |
 | `dsp/wet_gain.py` | 混响湿量增益级 |
-| `dsp/初始化.py` | 写共享内存默认值(安装脚本调用) |
-| `dsp/状态.py` | 命令行看归一化的实时推子/电平 |
+| `dsp/bootstrap.py` | 写共享内存默认值(安装脚本调用) |
+| `dsp/state.py` | 命令行看归一化的实时推子/电平 |
 | `bin/collaplex-audio` | 主命令(start / stop / web) |
 | `bin/*` | pipe 插件入口模板(ASCII 路径, 安装时渲染) |
 | `pipewire/10,20,30-*.conf` | 虚拟声卡+归一化 / HRTF+混响+湿量级 / EQ |
@@ -349,10 +349,10 @@
 | `web/server.py` `web/index.html` | 控制面板(纯标准库 + 单页, SSE 推送) |
 | `web/output_route.py` | 输出设备选择(落盘)+ 自动挂载守护 |
 | `hrir/` `reverb/` | HRIR(12 条)与房间 IR |
-| `脚本/安装.sh` `脚本/面板.sh` | 部署 / 起面板 |
-| `打包deb.sh` | 打 deb 到 `发布/` |
+| `scripts/install.sh` `scripts/panel.sh` | 部署 / 起面板 |
+| `build-deb.sh` | 打 deb 到 `dist/` |
 | `systemd/collaplex-audio-panel.service` | 面板自启模板 |
-| `工具/重做混响IR.py` | 剪掉房间 IR 的直达声, 原文件备份 `.orig.wav` |
+| `tools/remake_reverb_ir.py` | 剪掉房间 IR 的直达声, 原文件备份 `.orig.wav` |
 
 ## 测试与取证脚本
 
@@ -364,13 +364,13 @@
 | `test_stage_spec.py` | 逐级旁路频谱(定位是哪一级脏) |
 | `test_wet.py` | 湿度 → 混响尾巴能量 |
 | `test_echo.py` | 脉冲测回声(主峰后包络: 有没有孤立峰) |
-| `cdp_拖动验证.py` / `cdp_预设验证.py` | 前端真点击/真拖动(不看 DOM, 看实际写入) |
-| `扫频测频响.py` | 扫频 + Farina 反卷积测真频响 |
-| `电平与失真诊断.py` | 只改电平的对照实验 |
-| `验证混响声道.py` | 混响声道配置检查 |
+| `cdp_drag_check.py` / `cdp_preset_check.py` | 前端真点击/真拖动(不看 DOM, 看实际写入) |
+| `sweep_freq_response.py` | 扫频 + Farina 反卷积测真频响 |
+| `level_distortion_diag.py` | 只改电平的对照实验 |
+| `check_reverb_channels.py` | 混响声道配置检查 |
 
 ```sh
 uvx pyright --project pyrightconfig.json                      # 类型检查(要求 0 errors)
-bash 打包deb.sh                                                # 出 deb 到 发布/
-uv run --with websocket-client python 测试/cdp_拖动验证.py      # CDP 真鼠标验证
+bash build-deb.sh                                                # 出 deb 到 dist/
+uv run --with websocket-client python tests/cdp_drag_check.py      # CDP 真鼠标验证
 ```

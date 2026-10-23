@@ -65,7 +65,7 @@ collaplex-audio start          # installing does not take over — this step doe
 ```sh
 git clone https://github.com/Collaplex/Collaplex-Spatial-Audio.git
 cd Collaplex-Spatial-Audio
-collaplex-audio start          # same as bash 脚本/安装.sh
+collaplex-audio start          # same as bash scripts/install.sh
 ```
 
 ## Usage
@@ -76,7 +76,7 @@ collaplex-audio stop     # restore the system default output, stop the panel
 collaplex-audio web      # open the control panel (http://127.0.0.1:8789)
 ```
 
-- `WET=0.4 bash 脚本/安装.sh` — initial wet level (default 0.3)
+- `WET=0.4 bash scripts/install.sh` — initial wet level (default 0.3)
 - `WEB_PORT=8899 collaplex-audio web` — different panel port
 
 **Autostart**: the chain needs no service. Four config files sit in `~/.config/pipewire/pipewire.conf.d/` and load with PipeWire, so a single `start` is enough from then on. The panel ships as a systemd user unit, `collaplex-audio-panel.service`, installed and enabled by `start`. To undo:
@@ -118,7 +118,7 @@ Measured difference: cinema is **+3.4 dB** heavier at 25–60 Hz than the opera 
 
 ## Measurements
 
-All numbers below come from the scripts in `测试/` run against the real chain, not design targets:
+All numbers below come from the scripts in `tests/` run against the real chain, not design targets:
 
 | Metric | Measured |
 |---|---|
@@ -141,7 +141,7 @@ Low-frequency excess, before and after the fix (same material, same scripts):
 | Whole-chain crest factor | 2.0 dB | **12.2 dB** |
 | Samples hitting the limiter | 50.49% | **0.00%** |
 
-Diagnosis and fix: [doc/设计说明.md](doc/设计说明.md) (Chinese).
+Diagnosis and fix: [doc/DESIGN.md](doc/DESIGN.md) (Chinese).
 
 ## How it differs from commercial virtualizers
 
@@ -167,11 +167,11 @@ Level-match before comparing: this chain runs +15.1 dB louder than passthrough, 
 
 ```sh
 uvx pyright --project pyrightconfig.json                        # type check (must be 0 errors)
-bash 打包deb.sh                                                  # build the deb into 发布/
-uv run --with websocket-client python 测试/cdp_拖动验证.py        # real-mouse CDP checks
+bash build-deb.sh                                                  # build the deb into dist/
+uv run --with websocket-client python tests/cdp_drag_check.py        # real-mouse CDP checks
 ```
 
-Implementation notes, pitfalls and full diagnostic data: [doc/设计说明.md](doc/设计说明.md) (Chinese).
+Implementation notes, pitfalls and full diagnostic data: [doc/DESIGN.md](doc/DESIGN.md) (Chinese).
 
 ## License
 

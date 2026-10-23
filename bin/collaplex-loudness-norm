@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Collaplex
-# Collaplex 响度归一化 — pipe 插件入口 (本文件由 脚本/安装.sh 生成, 占位符 __DSP__)
+# Collaplex 响度归一化 — pipe 插件入口 (本文件由 scripts/install.sh 生成, 占位符 __DSP__)
 #
 # ★ pipe 插件的 command 只支持「程序 + 一个参数」(shebang 式 exec):
 #    `env A=B python3 x.py` 会报 "use -[v]S to pass options in shebang lines",

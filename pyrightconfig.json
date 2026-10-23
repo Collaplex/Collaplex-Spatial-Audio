@@ -1,6 +1,6 @@
 {
     "include": ["dsp", "web"],
-    "exclude": ["dsp/loudness_norm.py", "dsp/状态.py"],
+    "exclude": ["dsp/loudness_norm.py", "dsp/state.py"],
     "extraPaths": ["dsp"],
     "venvPath": ".",
     "venv": ".venv",

@@ -31,7 +31,7 @@ pids() {
 case "${1:-}" in
 start)
     echo "[Collaplex 音效] 启动链路..."
-    bash "$ROOT/脚本/安装.sh"
+    bash "$ROOT/scripts/install.sh"
     echo
     echo "面板: collaplex-audio web"
     ;;

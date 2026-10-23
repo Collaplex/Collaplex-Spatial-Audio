@@ -1,6 +1,6 @@
-"""面板截图(CDP): 打开 http://127.0.0.1:8789/ 截图, 用于像素级验收。
+"""panel_screenshot(CDP): 打开 http://127.0.0.1:8789/ 截图, 用于像素级验收。
 
-用法: uv run --with websocket-client python 面板截图.py [输出png] [宽] [高]
+用法: uv run --with websocket-client python panel_screenshot.py [输出png] [宽] [高]
 前置: google-chrome --headless=new --disable-gpu --no-sandbox \
         --remote-debugging-port=9333 --remote-allow-origins='*' about:blank &
 """

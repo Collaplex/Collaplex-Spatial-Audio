@@ -9,11 +9,10 @@ __pycache__/
 # 构建与发布产物
 build/
 dist/
-发布/
 *.deb
 
 # 本地状态与日志
 *.log
 
 # 测试截图
-测试/*.png
+tests/*.png

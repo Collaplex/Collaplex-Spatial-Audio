@@ -87,7 +87,7 @@ def main() -> None:
         print(f"   均值 {tag:>14}: {float(np.mean(eq_db[m])):+6.2f} dB")
 
     # ---- ② 房间 IR 的频响校平需求 ----
-    ir = read_mono(os.path.join(PROJ, "reverb", "房间混响IR-96k.wav"))
+    ir = read_mono(os.path.join(PROJ, "reverb", "room-ir-96k.wav"))
     n_ir = 1 << 18                                   # 2.73s IR -> 用大 FFT
     spec_ir = np.abs(np.fft.rfft(ir, n_ir)) ** 2
     f_ir = np.fft.rfftfreq(n_ir, 1.0 / RATE)

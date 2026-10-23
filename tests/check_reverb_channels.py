@@ -31,8 +31,8 @@ from scipy.io import wavfile  # noqa: E402
 RATE = 96000
 PROJ = "/home/lou/桌面/工作区/实验/collaplex音效"
 CONF = os.path.expanduser("~/.config/pipewire/pipewire.conf.d/20-collaplex-hrtf.conf")
-SYSTEM_IR = "/usr/share/collaplex-audio/reverb/房间混响IR-96k.wav"
-PROJ_IR = os.path.join(PROJ, "reverb/房间混响IR-96k.wav")
+SYSTEM_IR = "/usr/share/collaplex-audio/reverb/room-ir-96k.wav"
+PROJ_IR = os.path.join(PROJ, "reverb/room-ir-96k.wav")
 TMP = "/tmp/cx_chan"
 BURST = os.path.join(TMP, "burst.wav")
 

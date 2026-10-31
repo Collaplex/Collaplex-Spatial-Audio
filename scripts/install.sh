@@ -136,6 +136,22 @@ sleep 1
 systemctl --user restart pipewire pipewire-pulse wireplumber
 sleep 8
 
+# ---- 5b. 蓝牙设备: 重启 PipeWire 会断 A2DP, 主动重连一次 ----
+#     不重连的话节点不回来, 面板会一直显示"等待设备"(看着像挂载失败)。
+case "$TARGET" in
+    bluez_output.*)
+        if ! pw-dump 2>/dev/null | grep -q "\"node.name\": \"$TARGET\""; then
+            BT_MAC=$(printf '%s' "$TARGET" | sed -e 's|^bluez_output\.||' -e 's|\.[0-9]*$||')
+            echo "蓝牙设备不在图里, 重连 $BT_MAC ..."
+            timeout 25 bluetoothctl connect "$BT_MAC" >/dev/null 2>&1 || true
+            for _i in $(seq 1 15); do
+                pw-dump 2>/dev/null | grep -q "\"node.name\": \"$TARGET\"" && break
+                sleep 1
+            done
+        fi
+        ;;
+esac
+
 # ---- 6. 自检 ----
 echo "=== 自检 ==="
 echo -n "节点: "; pw-dump | grep -o '"node.name": "collaplex[^"]*"' | sort -u | tr '\n' ' '; echo

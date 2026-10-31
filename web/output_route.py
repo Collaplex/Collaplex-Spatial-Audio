@@ -47,7 +47,7 @@ EQ_OUT = "collaplex_eq_out"                 # 立体声链路的末段节点
 MONO_IN = "collaplex_mono_in"               # 单声道混合级: 接入
 MONO_OUT = "collaplex_mono_out"             # 单声道混合级: 输出(单声道设备时它就是末段)
 CHAIN_PREFIX = "collaplex_"                 # 链路自己的节点, 不能当输出设备
-SINK_PREFIX = "alsa_output."                # 真实硬件输出节点名前缀
+SINK_PREFIXES: tuple[str, ...] = ("alsa_output.", "bluez_output.")   # 真实硬件输出(声卡 / 蓝牙直连)
 STATE_DIR = os.path.expanduser("~/.local/state/cinema-spatial")
 OUTPUT_JSON = os.path.join(STATE_DIR, "output.json")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,6 +62,41 @@ class Choice(TypedDict):
     node_name: str
     description: str
     mono: bool
+
+
+def _is_sink(name: str) -> bool:
+    """真实硬件的输出节点名(声卡 / 蓝牙直连), 排除链路自己的虚拟节点。"""
+    return name.startswith(SINK_PREFIXES) and not name.startswith(CHAIN_PREFIX)
+
+
+def _sink_key(name: str) -> str:
+    """设备稳定键: 蓝牙节点尾部 `.<序号>` 会随重连变化, 认设备/记模式都按去掉序号的键。"""
+    if name.startswith("bluez_output."):
+        head, _, tail = name.rpartition(".")
+        if tail.isdigit():
+            return head
+    return name
+
+
+def _resolve(name: str, names: set[str]) -> str:
+    """把"记住的设备名"落到图里真实存在的节点名(蓝牙重连换了序号也认得出); 找不到返回空。"""
+    if name in names:
+        return name
+    key = _sink_key(name)
+    for cand in sorted(names):
+        if _is_sink(cand) and _sink_key(cand) == key:
+            return cand
+    return ""
+
+
+def _sink_names(nodes: dict[int, dict[str, Any]]) -> set[str]:
+    """图里所有真实输出节点名(Audio/Sink 且不是链路自己的)。"""
+    out: set[str] = set()
+    for props in nodes.values():
+        name = str(props.get("node.name", ""))
+        if str(props.get("media.class", "")) == "Audio/Sink" and _is_sink(name):
+            out.add(name)
+    return out
 
 
 def _run(*args: str) -> str:
@@ -175,7 +210,7 @@ def hardware_sinks() -> list[dict[str, Any]]:
         if str(props.get("media.class", "")) != "Audio/Sink":
             continue
         name = str(props.get("node.name", ""))
-        if not name.startswith(SINK_PREFIX) or name.startswith(CHAIN_PREFIX):
+        if not _is_sink(name):
             continue
         found.append({
             "name": name,
@@ -222,13 +257,16 @@ def saved() -> Choice:
     return {
         "node_name": name,
         "description": str(data.get("description", "")),
-        "mono": _mono_map().get(name, False),
+        "mono": mono_pref(name),
     }
 
 
 def mono_pref(name: str) -> bool:
     """这台设备记住的模式: True = 单声道混合(模拟/单声道设备)。"""
-    return _mono_map().get(name, False) if name else False
+    if not name:
+        return False
+    modes = _mono_map()
+    return modes.get(_sink_key(name), modes.get(name, False))
 
 
 def save(name: str, description: str, mono: bool | None = None) -> None:
@@ -239,7 +277,7 @@ def save(name: str, description: str, mono: bool | None = None) -> None:
     """
     modes = _mono_map()
     if mono is not None and name:
-        modes[name] = mono
+        modes[_sink_key(name)] = mono
     os.makedirs(STATE_DIR, exist_ok=True)
     tmp = OUTPUT_JSON + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
@@ -265,9 +303,7 @@ def mono_active() -> bool:
 def routed() -> str:
     """当前实际挂在哪台硬件设备上(没挂上返回空)。"""
     nodes, _ports, links = _graph()
-    hardware = {name for name in
-                (str(p.get("node.name", "")) for p in nodes.values())
-                if name.startswith(SINK_PREFIX)}
+    hardware = _sink_names(nodes)
     end = _end_node({str(p.get("node.name", "")) for p in nodes.values()})
     for on, _op, dn, _dp in links:
         if on == end and dn in hardware:
@@ -276,9 +312,9 @@ def routed() -> str:
 
 
 def present(name: str) -> bool:
-    """设备现在在不在位。"""
+    """设备现在在不在位(蓝牙重连换了节点序号也算在位)。"""
     nodes, _ports, _links = _graph()
-    return any(str(p.get("node.name", "")) == name for p in nodes.values())
+    return bool(_resolve(name, {str(p.get("node.name", "")) for p in nodes.values()}))
 
 
 def _first_input(nodes: dict[int, dict[str, Any]],
@@ -326,8 +362,12 @@ def apply_routing(target: str) -> tuple[bool, str]:
         return False, "没选输出设备"
     nodes, ports, links = _graph()
     names = {str(p.get("node.name", "")) for p in nodes.values()}
-    if target not in names:
+    if not _is_sink(target):
+        return False, "不是硬件输出设备: " + target
+    real = _resolve(target, names)
+    if not real:
         return False, "设备不在位"
+    target = real
     end = _end_node(names)
     if end not in names:
         return False, "链路没在跑"
@@ -404,10 +444,14 @@ def _watch() -> None:
             target = chosen["node_name"]
             if not target:
                 _last_note = "没选输出设备"
-            elif not present(target):
+                time.sleep(POLL_SEC)
+                continue
+            nodes, _ports, _links = _graph()
+            real = _resolve(target, {str(p.get("node.name", "")) for p in nodes.values()})
+            if not real:
                 _last_note = "等待设备: " + (chosen["description"] or target)
-            elif routed() != target:
-                ok, msg = apply_routing(target)
+            elif routed() != real:
+                ok, msg = apply_routing(real)
                 _last_note = msg if ok else ("挂载失败: " + msg)
             else:
                 _last_note = "已挂到 " + (chosen["description"] or target)

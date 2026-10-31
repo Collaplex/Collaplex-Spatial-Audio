@@ -151,7 +151,7 @@ select:hover{border-color:var(--ok)}
     <label class="chk"><input type="checkbox" id="outmono">单声道混合（双声道混成一路，给模拟/单声道设备）</label>
     <span class="num" id="outmonostate">—</span>
   </div>
-  <div class="hint" id="outhint">换设备: 选一下再点「应用」。勾「单声道混合」是给只有一路的设备(3.5 口接单声道蓝牙音响 / 老功放): 双声道先按 0.5+0.5 混成一路再送出去, 切换会重建链路(约 10 秒)。开机时设备晚到(USB 耳机常见)会由守护自动挂上。</div>
+  <div class="hint" id="outhint">换设备: 选一下再点「应用」。勾「单声道混合」是给只有一路的设备(3.5 口接单声道音箱 / 老功放): 双声道先按 0.5+0.5 混成一路再送出去, 切换会重建链路(约 10 秒)。蓝牙直连的音响也在列表里, 重建会断一下 A2DP, 装脚本会自己重连; 设备晚到(USB 耳机 / 蓝牙)由守护自动挂上。</div>
 </div>
 
 <div class="card">

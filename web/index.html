@@ -42,6 +42,13 @@ input[type=range]:hover::-webkit-slider-thumb{background:#86efac}
 input[type=range]::-moz-range-track{height:4px;background:var(--bd-hi);border-radius:2px}
 input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--ok)}
 .hint{color:var(--dim);font-size:10px;margin-top:8px}
+/* 单声道混合开关(输出设备卡片) */
+.chk{display:flex;align-items:center;gap:8px;flex:1;color:var(--fg);font-size:12px;cursor:pointer;user-select:none}
+.chk input{-webkit-appearance:none;appearance:none;width:14px;height:14px;flex:none;margin:0;
+  border:1px solid var(--bd-hi);border-radius:3px;background:transparent;cursor:pointer;position:relative}
+.chk input:checked{background:var(--ok);border-color:var(--ok)}
+.chk input:checked::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+  border:solid #08110d;border-width:0 2px 2px 0;transform:rotate(45deg)}
 
 /* ---- 归一化的电平与动态增益 ---- */
 .viz{display:flex;align-items:center;gap:9px;margin-top:9px;padding-left:110px}
@@ -139,7 +146,12 @@ select:hover{border-color:var(--ok)}
     <button id="outapply">应用</button>
     <span class="num" id="outstate">—</span>
   </div>
-  <div class="hint" id="outhint">换设备: 选一下再点「应用」。开机时设备晚到(USB 耳机常见)会由守护自动挂上, 不用重启链路。</div>
+  <div class="row">
+    <span class="name">输出模式</span>
+    <label class="chk"><input type="checkbox" id="outmono">单声道混合（双声道混成一路，给模拟/单声道设备）</label>
+    <span class="num" id="outmonostate">—</span>
+  </div>
+  <div class="hint" id="outhint">换设备: 选一下再点「应用」。勾「单声道混合」是给只有一路的设备(3.5 口接单声道蓝牙音响 / 老功放): 双声道先按 0.5+0.5 混成一路再送出去, 切换会重建链路(约 10 秒)。开机时设备晚到(USB 耳机常见)会由守护自动挂上。</div>
 </div>
 
 <div class="card">
@@ -477,17 +489,39 @@ function updateOutput(o) {
   }
   if (!sel.dataset.touched && o.device) sel.value = o.device;
   el("outstate").textContent = (o.routed && o.routed === o.device) ? "已挂载" : (o.routed ? "挂在别处" : "未挂载");
+  const cb = el("outmono");
+  if (!cb.dataset.touched) cb.checked = !!o.mono;
+  /* mono = 这台设备记住的模式; mono_active = 链路当前实际是什么 */
+  el("outmonostate").textContent = o.mono_active ? "单声道" : "立体声";
+  if (!!o.mono !== !!o.mono_active) el("outmonostate").textContent = "待应用";
   el("outhint").textContent = o.note || "";
 }
+el("outmono").addEventListener("change", () => { el("outmono").dataset.touched = "1"; });
 el("outdev").addEventListener("change", () => { el("outdev").dataset.touched = "1"; });
 el("outapply").addEventListener("click", async () => {
   const name = el("outdev").value;
   if (!name) return;
+  const mono = el("outmono").checked;
   const r = await fetch("/api/device", {
-    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name})});
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name, mono})});
   const d = await r.json().catch(() => ({}));
   say(d.ok ? ("输出设备: " + (d.message || name)) : ("切换失败: " + (d.error || "未知错误")));
   el("outdev").dataset.touched = "";
+  el("outmono").dataset.touched = "";
+  if (d.output) updateOutput(d.output);
+});
+/* 换模式必重建链路(末段节点是部署期定的), 所以勾选后直接提交, 等 10 秒 */
+el("outmono").addEventListener("change", async () => {
+  const o = (state && state.output) || {};
+  const name = el("outdev").value || o.device;
+  if (!name) return;
+  const mono = el("outmono").checked;
+  say(mono ? "切到单声道混合, 正在重建链路(约 10 秒)…" : "切回立体声, 正在重建链路(约 10 秒)…");
+  const r = await fetch("/api/device", {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name, mono})});
+  const d = await r.json().catch(() => ({}));
+  say(d.ok ? (d.message || "已切换") : ("切换失败: " + (d.error || "未知错误")));
+  el("outmono").dataset.touched = "";
   if (d.output) updateOutput(d.output);
 });
 el("flat").addEventListener("click", () => { gains = new Array(32).fill(0); commitEq(); markPreset("平直"); markVenue(null); buildEq(state ? state.freqs : []); });

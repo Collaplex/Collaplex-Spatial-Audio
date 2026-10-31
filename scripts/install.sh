@@ -2,12 +2,17 @@
 # Collaplex 音效 — 把链路固化装到 PipeWire(用户级)
 #
 #   链路: 全局音频(应用输出) -> collaplex_vsink(虚拟声卡)
-#         -> 响度归一化(pipe DSP) -> collaplex_hrtf_in(双耳 HRTF + 房间混响) -> 数字输出
+#         -> 响度归一化(pipe DSP) -> collaplex_hrtf_in(双耳 HRTF + 房间混响)
+#         -> 32 段 EQ -> [可选] 单声道混合 -> 输出设备
+#
+#   单声道混合(40-collaplex-mono.conf)只给"模拟/单声道设备"部署: 面板里给某台设备
+#   勾了「单声道混合」, 末段就接成 eq_out -> collaplex_mono_in -> 混合 -> 设备。
 #
 # 装什么:
 #   $HOME/.local/bin/collaplex-loudness-norm            pipe 插件入口(指向本项目 dsp/)
 #   $HOME/.config/pipewire/pipewire.conf.d/10-...conf   虚拟声卡 + 响度归一化
 #   $HOME/.config/pipewire/pipewire.conf.d/20-...conf   HRTF 核心(接入 + 输出)
+#   $HOME/.config/pipewire/pipewire.conf.d/40-...conf   单声道混合(仅单声道设备)
 #
 # 湿量: WET=0.3 环境变量覆盖(默认 0.3)
 set -eu
@@ -18,6 +23,7 @@ WRAPPER="$HOME/.local/bin/collaplex-loudness-norm"
 WET="${WET:-0.3}"
 HRTF_IN="collaplex_hrtf_in"
 EQ_IN="collaplex_eq_in"
+MONO_IN="collaplex_mono_in"
 # 解释器: 默认用项目 venv(自带 scipy、版本可控); deb 安装场景没有 venv, 退回系统 python3
 PY="${PY:-$ROOT/.venv/bin/python}"
 [ -x "$PY" ] || PY=/usr/bin/python3
@@ -50,17 +56,26 @@ if not target:
 desc = desc_of.get(target, "")
 output_route.save(target, desc)          # 落盘: 面板守护与下次 start 共用这一份选择
 present = any(d["name"] == target and d["present"] for d in sinks)
-print("%s\t%s\t%s" % (target, desc, "在位" if present else "不在位"))
+mode = "mono" if output_route.mono_pref(target) else "stereo"
+print("%s\t%s\t%s\t%s" % (target, desc, "在位" if present else "不在位", mode))
 PY
 )
 TARGET=$(printf '%s' "$TARGET_INFO" | cut -f1)
 TARGET_DESC=$(printf '%s' "$TARGET_INFO" | cut -f2)
 TARGET_STATE=$(printf '%s' "$TARGET_INFO" | cut -f3)
+MODE=$(printf '%s' "$TARGET_INFO" | cut -f4)
+# 末段接哪个节点: 单声道设备接混合级, 立体声设备直连
+if [ "$MODE" = "mono" ]; then EQ_TARGET="$MONO_IN"; else EQ_TARGET="$TARGET"; fi
 if [ -z "$TARGET" ]; then
     echo "找不到任何输出设备, 也没有记住的选择 —— 先把耳机/声卡接上再 start"
     exit 1
 fi
 echo "输出设备: $TARGET (${TARGET_DESC:-未知}) [$TARGET_STATE]"
+if [ "$MODE" = "mono" ]; then
+    echo "  输出模式: 单声道混合(模拟/单声道设备) —— 末段经 collaplex_mono_in"
+else
+    echo "  输出模式: 立体声直连"
+fi
 if [ "$TARGET_STATE" != "在位" ]; then
     echo "  ★ 设备当前不在位: 链路先建好, 设备一出现由面板守护(output_route)自动挂上, 不用重启"
 fi
@@ -84,14 +99,26 @@ sed -e "s|__HRIR__|$ROOT/hrir|" -e "s|__REVERB__|$ROOT/reverb/room-ir-96k.wav|" 
 sed -e "s|__PY__|$PY|" -e "s|__DSP__|$ROOT/dsp/wet_gain.py|" \
     "$ROOT/bin/collaplex-wet" > "$HOME/.local/bin/collaplex-wet"
 chmod 755 "$HOME/.local/bin/collaplex-wet"
-sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__WET_WRAPPER__|$HOME/.local/bin/collaplex-wet|" -e "s|__TARGET__|$TARGET|" \
+sed -e "s|__EQ_WRAPPER__|$HOME/.local/bin/collaplex-eq|" -e "s|__WET_WRAPPER__|$HOME/.local/bin/collaplex-wet|" -e "s|__TARGET__|$EQ_TARGET|" \
     "$ROOT/pipewire/30-collaplex-eq.conf" > "$CONF_DIR/30-collaplex-eq.conf"
+# 单声道混合级: 只在单声道设备上部署; 换回立体声设备时把旧文件删掉(不然节点还挂着)
+if [ "$MODE" = "mono" ]; then
+    sed -e "s|__TARGET__|$TARGET|" \
+        "$ROOT/pipewire/40-collaplex-mono.conf" > "$CONF_DIR/40-collaplex-mono.conf"
+else
+    rm -f "$CONF_DIR/40-collaplex-mono.conf"
+fi
 cp "$ROOT/pipewire/91-collaplex-clock.conf" "$CONF_DIR/91-clock.conf"
 # 共享内存不存在时写入默认参数(全平直 / 0 dB / 湿量 0.3); 已存在则保留用户当前设置
 if [ ! -f /dev/shm/collaplex-eq ]; then
     "$PY" "$ROOT/dsp/bootstrap.py"
 fi
 echo "已装配置: 10-collaplex-vsink.conf / 20-collaplex-hrtf.conf(混响湿量 $WET) / 30-collaplex-eq.conf"
+if [ "$MODE" = "mono" ]; then
+    echo "          + 40-collaplex-mono.conf(单声道混合: 开)"
+else
+    echo "          (单声道混合: 关)"
+fi
 
 # ---- 4. 重启前清掉残留 DSP(占住共享槽位会让新实例起不来) ----
 for p in /proc/[0-9]*; do
@@ -134,6 +161,19 @@ for p in /proc/[0-9]*; do
 done
 echo "湿量进程数: $w (应为 2)"
 echo -n "默认输出: "; wpctl inspect @DEFAULT_SINK@ 2>/dev/null | grep -m1 "node.name" | sed 's/.*= //'
+# 末段挂载: 单声道设备挂 mono_out, 立体声设备挂 eq_out —— 由 output_route 判定并补线
+"$PY" - "$ROOT/web" "$TARGET" "$TARGET_DESC" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+
+import output_route
+
+ok, msg = output_route.select(sys.argv[2], sys.argv[3])
+print("末段挂载: " + ("成功 - " if ok else "失败 - ") + msg)
+if output_route.mono_active() != output_route.saved()["mono"]:
+    print("★ 模式与部署不一致, 请重跑 collaplex-audio start")
+PY
 
 # ---- 5. 面板自启(systemd --user, 登录即起) ----
 # 链路本身不需要服务: conf 在 ~/.config/pipewire/pipewire.conf.d/, PipeWire 起来就自动加载。

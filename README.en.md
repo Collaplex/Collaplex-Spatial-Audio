@@ -35,6 +35,7 @@ Every parameter applies in real time and persists across restarts. The chain nev
 | Master volume + soft limiter | ±12 dB; limiter at −0.63 dBFS, 0% clipped samples |
 | Live panel | 62 Hz SSE push: four level meters, normalization gain, wet level, master volume, device state |
 | Output device management | Pick the hardware output, persisted; a guard thread re-checks every 3 s and reattaches devices that appear late |
+| Mono downmix | For analog/mono devices (single-channel Bluetooth speaker on the 3.5 mm jack, old amp, single speaker): L/R summed at 0.5+0.5 and copied to both channels; remembered per device, rebuilds the chain on change |
 | Persistence | EQ / master / wet level stored in `~/.local/state/cinema-spatial/`, restored if shared memory is wiped |
 | Non-invasive | No system PipeWire config changes, no autostart; after `stop` the default output returns to where it was |
 
@@ -47,10 +48,11 @@ Global audio (application output)
   → collaplex_hrtf_in      binaural HRTF (SADIE II / H4, 4 convolution paths)
   → room reverb            convolver (3 s IR) + wet-gain stage (pipe DSP ×2)
   → collaplex_eq_in        32-band EQ + master volume + soft limiter (pipe DSP ×2)
-  → digital output (S/PDIF or the selected hardware device)
+  → [mono devices only] collaplex_mono_in   L/R summed into one (builtin mixer, 0.5+0.5)
+  → the selected hardware device (analog jack / digital output)
 ```
 
-Six nodes, six DSP processes, 96 kHz throughout. Each effect stage is an independent instance, so you can feed it with `pw-play` and verify it on its own instead of debugging the whole chain at once.
+Six nodes, six DSP processes (two more nodes and no extra process for a mono device), 96 kHz throughout. Each effect stage is an independent instance, so you can feed it with `pw-play` and verify it on its own instead of debugging the whole chain at once.
 
 ## Install
 

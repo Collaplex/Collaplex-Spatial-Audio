@@ -12,7 +12,9 @@
     POST /api/volume    {"db": -12..12}        总音量
     POST /api/wet       {"wet": 0..1}          混响湿量
     POST /api/loudness  {"target_db": -30..-6, "on": bool}   响度归一化(DSP 每秒重读该 JSON)
-    POST /api/device    {"name": "alsa_output.xxx"}          输出设备(落盘 + 立刻挂载)
+    POST /api/device    {"name": "alsa_output.xxx",          输出设备(落盘 + 立刻挂载)
+                         "mono": true|false}                 单声道混合: 模拟/单声道设备
+                                                             模式变了会重建链路(约 10 秒)
 """
 from __future__ import annotations
 
@@ -192,7 +194,17 @@ class Handler(BaseHTTPRequestHandler):
                 if name not in known:
                     self._send_json({"ok": False, "error": "未知的输出设备: %s" % name}, 400)
                     return
-                ok, msg = output_route.select(name, known[name])
+                # mono 省略 = 沿用这台设备记住的模式
+                requested = data.get("mono")
+                mono = bool(requested) if requested is not None else output_route.mono_pref(name)
+                active = output_route.mono_active()
+                if mono != active:
+                    # 模式变了: 末段节点是部署期定下的, 只能重建链路(装脚本会重启 PipeWire)
+                    output_route.save(name, known[name], mono)
+                    ok, msg = output_route.redeploy()
+                    msg = ("单声道混合(%s)" % ("开" if mono else "关")) + " " + msg
+                else:
+                    ok, msg = output_route.select(name, known[name], mono)
                 self._send_json({"ok": ok, "message": msg, "output": output_route.status()})
                 return
             else:

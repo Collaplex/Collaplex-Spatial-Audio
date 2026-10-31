@@ -35,6 +35,7 @@ Spatial audio for headphones on Linux — a PipeWire chain driven by in-house DS
 | 总音量与软限幅 | ±12 dB；限幅介入点 −0.63 dBFS，贴顶样本 0% |
 | 实时面板 | 62 Hz SSE 推送：4 路电平表、归一化增益、湿量、总音量、设备状态 |
 | 输出设备管理 | 下拉选硬件输出并落盘；守护线程每 3 秒核对，设备晚到时自动挂上 |
+| 单声道混合 | 给模拟/单声道设备（3.5 口接单声道蓝牙音响、老功放、单只喇叭）：双声道按 0.5+0.5 混成一路，两路输出同一信号；按设备记忆，切换时重建链路 |
 | 参数持久化 | EQ / 总音量 / 湿量落盘到 `~/.local/state/cinema-spatial/`，共享内存被清空后自动恢复 |
 | 零侵入 | 不写系统 PipeWire 配置、不开机自启；`stop` 后默认输出回到原设备 |
 
@@ -47,10 +48,21 @@ Spatial audio for headphones on Linux — a PipeWire chain driven by in-house DS
   → collaplex_hrtf_in     双耳 HRTF（SADIE II / H4，4 路卷积）
   → 房间混响              convolver（3 秒 IR）+ 湿量级（pipe DSP ×2）
   → collaplex_eq_in       32 段 EQ + 总音量 + 软限幅（pipe DSP ×2）
-  → 数字输出（S/PDIF 或所选硬件设备）
+  → [单声道设备才接] collaplex_mono_in  双声道混成一路（内置 mixer，0.5+0.5）
+  → 所选硬件设备（模拟口 / 数字输出）
 ```
 
-共 **6 个节点 + 6 个 DSP 进程**，全链 96 kHz。每个效果级都是独立实例，可以单独 `pw-play` 推流验证，不必在主链路上串联调试。
+共 **6 个节点 + 6 个 DSP 进程**（单声道设备再加 2 个节点、不加进程），全链 96 kHz。每个效果级都是独立实例，可以单独 `pw-play` 推流验证，不必在主链路上串联调试。
+
+模拟口上挂的常常只有一路（3.5 口接单声道蓝牙音响、老功放、单只喇叭）：立体声直接送过去只响一边。给这台设备勾「单声道混合」后，末段先经过 `40-collaplex-mono.conf` 混成一路，再 **复制到 FL/FR 两个声道**送出去 —— 单声道设备取哪一路都能听全。
+
+```
+eq_out  FL ──×0.5──┐
+                   ├──► 单声道 ──┬──► FL
+eq_out  FR ──×0.5──┘             └──► FR
+```
+
+增益用 0.5 + 0.5：两路都满幅时合成仍是 1.0，相加不削波（等于等权平均）。模式**按设备记忆**，只在切换设备/模式时重建链路（约 10 秒）—— 末段是哪个节点是部署期定的，运行期硬拆硬接会和 PipeWire 自动连线打架。
 
 ## 安装
 
@@ -59,7 +71,7 @@ Spatial audio for headphones on Linux — a PipeWire chain driven by in-house DS
 **deb 包（推荐）**
 
 ```sh
-sudo dpkg -i collaplex-audio_1.0.2_all.deb
+sudo dpkg -i collaplex-audio_1.0.9_all.deb
 collaplex-audio start          # 装完不会自动接管，必须执行这一步
 ```
 

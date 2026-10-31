@@ -21,6 +21,18 @@
      **只**连到它"; 不对就拆掉错的、补上对的。设备一出现就自动挂上, 不用再手动重启。
 
 守护只做"把末段挂到用户选的设备"这一件事, 不碰 DSP 参数、不重建链路。
+
+单声道混合(模拟/单声道设备)
+---------------------------
+模拟口上挂的常常是只有一路的设备(3.5 口接单声道蓝牙音响、老功放、单只喇叭):
+立体声送过去只响一边。给这台设备勾「单声道混合」后, 链路末段变成
+
+    eq_out -> collaplex_mono_in -> 单声道混合 -> collaplex_mono_out -> 设备
+
+混合级是 40-collaplex-mono.conf(内置 mixer 0.5+0.5, 不加 DSP 进程)。
+"末段是哪个节点"由**部署时**决定(install.sh 按落盘的模式渲染): 部署了 mono 级末段
+就是 mono_out, 没部署就是 eq_out。本模块只认节点在位与否, 不去猜模式 ——
+模式变了要重建链路(重跑 install.sh, 约 10 秒), 否则会和 PipeWire 的自动连线打架。
 """
 from __future__ import annotations
 
@@ -29,16 +41,27 @@ import os
 import subprocess
 import threading
 import time
-from typing import Any
+from typing import Any, TypedDict, cast
 
-EQ_OUT = "collaplex_eq_out"                 # 链路末段节点(它的输出要挂到设备上)
+EQ_OUT = "collaplex_eq_out"                 # 立体声链路的末段节点
+MONO_IN = "collaplex_mono_in"               # 单声道混合级: 接入
+MONO_OUT = "collaplex_mono_out"             # 单声道混合级: 输出(单声道设备时它就是末段)
 CHAIN_PREFIX = "collaplex_"                 # 链路自己的节点, 不能当输出设备
 SINK_PREFIX = "alsa_output."                # 真实硬件输出节点名前缀
 STATE_DIR = os.path.expanduser("~/.local/state/cinema-spatial")
 OUTPUT_JSON = os.path.join(STATE_DIR, "output.json")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 POLL_SEC = 3.0                              # 守护核对间隔
 
 _last_note = ""
+
+
+class Choice(TypedDict):
+    """落盘的设备选择(mono 是"这台设备要不要单声道混合"的记忆)。"""
+
+    node_name: str
+    description: str
+    mono: bool
 
 
 def _run(*args: str) -> str:
@@ -170,30 +193,73 @@ def hardware_sinks() -> list[dict[str, Any]]:
     return found
 
 
-def saved() -> dict[str, str]:
-    """读落盘的设备选择; 没有就返回空(调用方自行回落探测)。"""
+def _mono_map() -> dict[str, bool]:
+    """读落盘的"哪台设备要单声道混合"(坏文件当空表)。"""
     try:
         with open(OUTPUT_JSON, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
-        return {"node_name": "", "description": ""}
+        return {}
     if not isinstance(data, dict):
-        return {"node_name": "", "description": ""}
+        return {}
+    raw = data.get("mono")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): bool(v) for k, v in cast(dict[str, Any], raw).items()}
+
+
+def saved() -> Choice:
+    """读落盘的设备选择; 没有就返回空(调用方自行回落探测)。"""
+    empty: Choice = {"node_name": "", "description": "", "mono": False}
+    try:
+        with open(OUTPUT_JSON, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return empty
+    if not isinstance(data, dict):
+        return empty
+    name = str(data.get("node_name", ""))
     return {
-        "node_name": str(data.get("node_name", "")),
+        "node_name": name,
         "description": str(data.get("description", "")),
+        "mono": _mono_map().get(name, False),
     }
 
 
-def save(name: str, description: str) -> None:
-    """落盘设备选择(原子写: 临时文件 + rename)。"""
+def mono_pref(name: str) -> bool:
+    """这台设备记住的模式: True = 单声道混合(模拟/单声道设备)。"""
+    return _mono_map().get(name, False) if name else False
+
+
+def save(name: str, description: str, mono: bool | None = None) -> None:
+    """落盘设备选择(原子写: 临时文件 + rename)。
+
+    mono=None 表示"只改设备, 模式沿用这台设备原来的记忆" —— 装脚本探测设备时就走这条,
+    免得把用户勾好的单声道设置冲掉。
+    """
+    modes = _mono_map()
+    if mono is not None and name:
+        modes[name] = mono
     os.makedirs(STATE_DIR, exist_ok=True)
     tmp = OUTPUT_JSON + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"node_name": name, "description": description}, fh)
+        json.dump({"node_name": name, "description": description, "mono": modes}, fh,
+                  ensure_ascii=False)
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, OUTPUT_JSON)
+
+
+def _end_node(names: set[str]) -> str:
+    """链路末段节点: 部署了单声道混合级就是 mono_out, 否则 eq_out。"""
+    return MONO_OUT if MONO_OUT in names else EQ_OUT
+
+
+def mono_active() -> bool:
+    """链路里有没有单声道混合级(= 当前部署是不是单声道模式)。"""
+    nodes, _ports, _links = _graph()
+    names = {str(p.get("node.name", "")) for p in nodes.values()}
+    return _end_node(names) == MONO_OUT
 
 
 def routed() -> str:
@@ -202,8 +268,9 @@ def routed() -> str:
     hardware = {name for name in
                 (str(p.get("node.name", "")) for p in nodes.values())
                 if name.startswith(SINK_PREFIX)}
+    end = _end_node({str(p.get("node.name", "")) for p in nodes.values()})
     for on, _op, dn, _dp in links:
-        if on == EQ_OUT and dn in hardware:
+        if on == end and dn in hardware:
             return dn
     return ""
 
@@ -212,6 +279,42 @@ def present(name: str) -> bool:
     """设备现在在不在位。"""
     nodes, _ports, _links = _graph()
     return any(str(p.get("node.name", "")) == name for p in nodes.values())
+
+
+def _first_input(nodes: dict[int, dict[str, Any]],
+                 ports: dict[int, dict[str, Any]],
+                 node_name: str) -> dict[str, str]:
+    """真单声道设备只有一个输入口(声道名可能是 MONO) —— 拿第一个口当 FL 用。"""
+    wanted_ids = {nid for nid, props in nodes.items()
+                  if str(props.get("node.name", "")) == node_name}
+    names: list[str] = []
+    for props in ports.values():
+        if int(str(props.get("node.id", -1))) not in wanted_ids:
+            continue
+        if str(props.get("port.direction", "")) != "in":
+            continue
+        names.append(str(props.get("port.name", "")))
+    return {"FL": sorted(names)[0]} if names else {}
+
+
+def _link_channels(nodes: dict[int, dict[str, Any]],
+                   ports: dict[int, dict[str, Any]],
+                   links: list[tuple[str, str, str, str]],
+                   src: str, dst: str) -> int:
+    """把 src 的 FL/FR 按声道接到 dst(dst 缺哪个就不接); 返回补了几条。"""
+    outs = _port_by_channel(nodes, ports, src, "out")
+    ins = _port_by_channel(nodes, ports, dst, "in")
+    if not ins:
+        ins = _first_input(nodes, ports, dst)
+    have = {(op, dp) for on, op, dn, dp in links if on == src and dn == dst}
+    added = 0
+    for channel in ("FL", "FR"):
+        op, ip = outs.get(channel), ins.get(channel)
+        if op is None or ip is None or (op, ip) in have:
+            continue
+        _run("pw-link", f"{src}:{op}", f"{dst}:{ip}")
+        added += 1
+    return added
 
 
 def apply_routing(target: str) -> tuple[bool, str]:
@@ -225,50 +328,69 @@ def apply_routing(target: str) -> tuple[bool, str]:
     names = {str(p.get("node.name", "")) for p in nodes.values()}
     if target not in names:
         return False, "设备不在位"
-    if EQ_OUT not in names:
+    end = _end_node(names)
+    if end not in names:
         return False, "链路没在跑"
 
     removed: list[str] = []
     for on, op, dn, dp in links:
-        if on == EQ_OUT and dn != target:
+        if on == end and dn != target:
             _run("pw-link", "-d", f"{on}:{op}", f"{dn}:{dp}")
             removed.append(dn)
 
-    have = {(op, dp) for on, op, dn, dp in links if on == EQ_OUT and dn == target}
-    outs = _port_by_channel(nodes, ports, EQ_OUT, "out")
-    ins = _port_by_channel(nodes, ports, target, "in")
-    added = 0
-    for channel in ("FL", "FR"):
-        op, ip = outs.get(channel), ins.get(channel)
-        if op is None or ip is None or (op, ip) in have:
-            continue
-        _run("pw-link", f"{EQ_OUT}:{op}", f"{target}:{ip}")
-        added += 1
+    added = _link_channels(nodes, ports, links, end, target)
+    if end == MONO_OUT and MONO_IN in names:
+        added += _link_channels(nodes, ports, links, EQ_OUT, MONO_IN)
     detail = []
     if removed:
         detail.append("拆掉连到 " + "/".join(sorted(set(removed))))
     if added:
         detail.append(f"补上 {added} 条声道连线")
-    return True, ("已挂到 " + target + ("(" + ", ".join(detail) + ")" if detail else "(本来就挂对了)"))
+    where = "已挂到 " + target
+    if end == MONO_OUT:
+        where += "(经单声道混合)"
+    return True, (where + ("(" + ", ".join(detail) + ")" if detail else "(本来就挂对了)"))
+
+
+def redeploy() -> tuple[bool, str]:
+    """按落盘的设备/模式重建链路 —— 重跑安装脚本(含重启 PipeWire, 约 10 秒)。
+
+    只有"模式变了"(立体声 <-> 单声道混合)才需要它: 末段是哪个节点是部署期就定下的,
+    运行期改不了, 硬拆硬接会和 PipeWire 的自动连线打架。
+    """
+    script = os.path.join(ROOT, "scripts", "install.sh")
+    if not os.path.exists(script):
+        return False, "找不到安装脚本: " + script
+    try:
+        done = subprocess.run(["bash", script], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, "重建失败: %s" % exc
+    if done.returncode != 0:
+        lines = [ln for ln in (done.stderr or done.stdout).strip().splitlines() if ln.strip()]
+        return False, "重建失败: " + (lines[-1] if lines else "退出码 %d" % done.returncode)
+    return True, "链路已重建"
 
 
 def status() -> dict[str, Any]:
-    """给面板用的一段状态: 选中设备 / 实际挂载 / 设备清单 / 守护备注。"""
+    """给面板用的一段状态: 选中设备 / 实际挂载 / 设备清单 / 模式 / 守护备注。"""
     chosen = saved()
     now_routed = routed()
+    active = mono_active()
     return {
         "device": chosen["node_name"],
         "description": chosen["description"],
         "routed": now_routed,
         "present": present(chosen["node_name"]) if chosen["node_name"] else False,
         "devices": hardware_sinks(),
+        "mono": chosen["mono"],                 # 这台设备记住的模式(用户意图)
+        "mono_active": active,                  # 链路当前实际是不是单声道混合
         "note": _last_note,
     }
 
 
-def select(name: str, description: str = "") -> tuple[bool, str]:
-    """面板按钮走过来: 落盘 + 立刻挂载一次。"""
-    save(name, description)
+def select(name: str, description: str = "", mono: bool | None = None) -> tuple[bool, str]:
+    """面板按钮走过来: 落盘 + 立刻挂载一次(mono 只改记忆, 生效要重建链路)。"""
+    save(name, description, mono)
     ok, msg = apply_routing(name)
     return ok, msg
 
@@ -289,6 +411,8 @@ def _watch() -> None:
                 _last_note = msg if ok else ("挂载失败: " + msg)
             else:
                 _last_note = "已挂到 " + (chosen["description"] or target)
+                if chosen["mono"] != mono_active():
+                    _last_note += "(模式改了: 点「应用」重建链路才生效)"
         except Exception as exc:                    # 守护线程绝不能死
             _last_note = "守护异常: %s" % exc
         time.sleep(POLL_SEC)

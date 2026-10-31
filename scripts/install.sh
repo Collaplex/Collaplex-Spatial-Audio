@@ -34,6 +34,7 @@ PY="${PY:-$ROOT/.venv/bin/python}"
 # 没记忆过就照旧: 先找数字输出(iec958), 再退到任意硬件输出。
 TARGET_INFO=$(/usr/bin/python3 - "$ROOT/web" <<'PY'
 import sys
+import time
 
 sys.path.insert(0, sys.argv[1])
 
@@ -50,12 +51,25 @@ if not target:
             break
     if not target and sinks:
         target = sinks[0]["name"]
+if target.startswith("bluez_output."):
+    # 蓝牙常被 HFP(通话, 8/16 kHz)占着 —— 先切回 a2dp, 切完节点名可能变, 重新对一次
+    switched, info = output_route.prefer_a2dp(target)
+    if info:
+        print(info, file=sys.stderr)
+    if switched:
+        time.sleep(1.5)
+        sinks = output_route.hardware_sinks()
+        desc_of = {d["name"]: d["description"] for d in sinks}
+        real = output_route.resolve_device(target)
+        if real and real != target:
+            print("节点名跟着变了: %s → %s" % (target, real), file=sys.stderr)
+            target = real
 if not target:
     print("\t\t")
     raise SystemExit
 desc = desc_of.get(target, "")
 output_route.save(target, desc)          # 落盘: 面板守护与下次 start 共用这一份选择
-present = any(d["name"] == target and d["present"] for d in sinks)
+present = bool(output_route.resolve_device(target))   # 蓝牙两种写法/尾部序号也算在位
 mode = "mono" if output_route.mono_pref(target) else "stereo"
 print("%s\t%s\t%s\t%s" % (target, desc, "在位" if present else "不在位", mode))
 PY
@@ -136,19 +150,57 @@ sleep 1
 systemctl --user restart pipewire pipewire-pulse wireplumber
 sleep 8
 
-# ---- 5b. 蓝牙设备: 重启 PipeWire 会断 A2DP, 主动重连一次 ----
-#     不重连的话节点不回来, 面板会一直显示"等待设备"(看着像挂载失败)。
+# ---- 5b. 蓝牙设备: 重启 PipeWire 会断 A2DP, 重连一次并切回 a2dp ----
+#     不重连节点不回来(面板会一直"等待设备"); 回来也可能停在 HFP(通话 8/16 kHz, 听着像电话)。
 case "$TARGET" in
     bluez_output.*)
-        if ! pw-dump 2>/dev/null | grep -q "\"node.name\": \"$TARGET\""; then
-            BT_MAC=$(printf '%s' "$TARGET" | sed -e 's|^bluez_output\.||' -e 's|\.[0-9]*$||')
-            echo "蓝牙设备不在图里, 重连 $BT_MAC ..."
-            timeout 25 bluetoothctl connect "$BT_MAC" >/dev/null 2>&1 || true
-            for _i in $(seq 1 15); do
-                pw-dump 2>/dev/null | grep -q "\"node.name\": \"$TARGET\"" && break
-                sleep 1
-            done
-        fi
+        "$PY" - "$ROOT/web" "$TARGET" <<'PY' || true
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, sys.argv[1])
+
+import output_route  # noqa: E402
+
+target = sys.argv[2]
+mac = output_route.bt_mac(target)
+
+
+def reconnect() -> None:
+    """断开再连: 重启 PipeWire 后直接 connect 常常只拿回 HFP, 断一次才会把 a2dp 端点挂上。"""
+    print("  蓝牙重连 " + mac + " ...", file=sys.stderr)
+    subprocess.run(["timeout", "20", "bluetoothctl", "disconnect", mac], capture_output=True)
+    time.sleep(2)
+    subprocess.run(["timeout", "25", "bluetoothctl", "connect", mac], capture_output=True)
+    for _ in range(15):
+        if output_route.resolve_device(target):
+            break
+        time.sleep(1)
+
+
+def wait_a2dp(secs: int) -> bool:
+    """等 A2DP profile 出现(刚连上时先只列 HFP)。"""
+    for _ in range(secs):
+        if output_route.a2dp_index(target):
+            return True
+        time.sleep(1)
+    return False
+
+
+if not output_route.resolve_device(target):
+    reconnect()
+if not wait_a2dp(12):
+    reconnect()
+    wait_a2dp(12)
+switched, info = output_route.prefer_a2dp(target)
+if info:
+    print("  " + info, file=sys.stderr)
+for _ in range(10):
+    if output_route.resolve_device(target):
+        break
+    time.sleep(1)
+PY
         ;;
 esac
 

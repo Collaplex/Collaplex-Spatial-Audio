@@ -69,12 +69,26 @@ def _is_sink(name: str) -> bool:
     return name.startswith(SINK_PREFIXES) and not name.startswith(CHAIN_PREFIX)
 
 
+def bt_mac(name: str) -> str:
+    """蓝牙节点名 → MAC(冒号/下划线两种写法都认); 不是蓝牙返回空。"""
+    if not name.startswith("bluez_output."):
+        return ""
+    mac = name[len("bluez_output."):]
+    head, _, tail = mac.rpartition(".")
+    if tail.isdigit():
+        mac = head
+    return mac.replace("_", ":")
+
+
 def _sink_key(name: str) -> str:
-    """设备稳定键: 蓝牙节点尾部 `.<序号>` 会随重连变化, 认设备/记模式都按去掉序号的键。"""
-    if name.startswith("bluez_output."):
-        head, _, tail = name.rpartition(".")
-        if tail.isdigit():
-            return head
+    """设备稳定键: 蓝牙两种写法(冒号/下划线)与尾部 `.<序号>` 都归一到 "bluez:<MAC>"。
+
+    蓝牙重连会换节点名写法(bluez_output.AA:BB.. / bluez_output.AA_BB...1)与序号,
+    认设备、存单声道记忆都按这个键, 换写法不丢设置。
+    """
+    mac = bt_mac(name)
+    if mac:
+        return "bluez:" + mac.replace(":", "").upper()
     return name
 
 
@@ -97,6 +111,78 @@ def _sink_names(nodes: dict[int, dict[str, Any]]) -> set[str]:
         if str(props.get("media.class", "")) == "Audio/Sink" and _is_sink(name):
             out.add(name)
     return out
+
+
+A2DP_ORDER: tuple[str, ...] = ("a2dp-sink", "a2dp-sink-sbc_xq")   # 优先高码率音乐 profile(通话 profile=8/16 kHz)
+
+
+def _bt_card(name: str) -> tuple[int, list[tuple[int, str]]]:
+    """蓝牙设备对应的 bluez_card: (设备 id, [(profile 序号, 名字)]); 不是蓝牙就返回 (0, [])。"""
+    mac = bt_mac(name)
+    if not mac:
+        return 0, []
+    card = "bluez_card." + mac.replace(":", "_")
+    for obj in _dump():
+        if obj.get("type") != "PipeWire:Interface:Device":
+            continue
+        info = obj.get("info") or {}
+        props = info.get("props") or {}
+        if str(props.get("device.name", "")) != card:
+            continue
+        params = info.get("params") or {}
+        raw = params.get("EnumProfile") or []
+        listed: list[tuple[int, str]] = []
+        for item in raw:
+            if isinstance(item, dict):
+                listed.append((int(str(item.get("index", 0))), str(item.get("name", ""))))
+        return int(str(obj.get("id", 0))), listed
+    return 0, []
+
+
+def a2dp_index(name: str) -> int:
+    """蓝牙卡片里最合适的 a2dp profile 序号; 没有(只剩 HFP/off)返回 0。
+
+    ★刚连上时 EnumProfile 常常只列出 HFP, A2DP 端点要晚几百毫秒~几秒才注册上,
+    所以调用方要轮询等它出现(见 install.sh 5b), 别连上来就判定"没有 a2dp"。
+    """
+    _dev_id, profiles = _bt_card(name)
+    if not profiles:
+        return 0
+    names = [n for _i, n in profiles]
+    for want in A2DP_ORDER:
+        if want in names:
+            return next(i for i, n in profiles if n == want)
+    for i, n in profiles:
+        if n.startswith("a2dp-sink"):
+            return i
+    return 0
+
+
+def prefer_a2dp(name: str) -> tuple[bool, str]:
+    """蓝牙输出尽量切到 a2dp(音乐), 被 HFP 占着时 8/16 kHz 听着就像电话。
+
+    返回 (是否切了, 说明)。不认识的设备/已经是对的 profile → (False, "")。
+    """
+    dev_id, profiles = _bt_card(name)
+    if not dev_id or not profiles:
+        return False, ""
+    index = a2dp_index(name)
+    if not index:
+        names = sorted(n for _i, n in profiles)
+        return False, "蓝牙设备没有 a2dp 可选(只剩 " + "/".join(names) + ")"
+    want = next(n for i, n in profiles if i == index)
+    current = ""
+    for obj in _dump():
+        if obj.get("type") != "PipeWire:Interface:Device" or int(str(obj.get("id", 0))) != dev_id:
+            continue
+        for item in (obj.get("info") or {}).get("params", {}).get("Profile", []) or []:
+            if isinstance(item, dict):
+                current = str(item.get("name", ""))
+    if current == want:
+        return False, ""
+    _run("wpctl", "set-profile", str(dev_id), str(index))
+    time.sleep(1.5)
+    return True, "蓝牙 profile: %s → %s" % (current or "?", want)
 
 
 def _run(*args: str) -> str:
@@ -240,7 +326,8 @@ def _mono_map() -> dict[str, bool]:
     raw = data.get("mono")
     if not isinstance(raw, dict):
         return {}
-    return {str(k): bool(v) for k, v in cast(dict[str, Any], raw).items()}
+    # 读的时候归一成稳定键: 老文件里存的是原始节点名, 也照样认
+    return {_sink_key(str(k)): bool(v) for k, v in cast(dict[str, Any], raw).items()}
 
 
 def saved() -> Choice:
@@ -309,6 +396,12 @@ def routed() -> str:
         if on == end and dn in hardware:
             return dn
     return ""
+
+
+def resolve_device(name: str) -> str:
+    """记住的设备名 → 图里真实的节点名(蓝牙换序号/换 profile 也对得上); 不在位返回空。"""
+    nodes, _ports, _links = _graph()
+    return _resolve(name, {str(p.get("node.name", "")) for p in nodes.values()})
 
 
 def present(name: str) -> bool:
